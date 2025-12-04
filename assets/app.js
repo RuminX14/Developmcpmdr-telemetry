@@ -1025,7 +1025,7 @@
     };
   }
 
-  // ========= Plugin: etykiety wysokości nad osią czasu =========
+  // ========= Plugin: etykiety wysokości nad osią czasu (ulepszony) =========
   const altitudeTopAxisPlugin = {
     id: 'altitudeTopAxis',
     afterDraw(chart) {
@@ -1033,16 +1033,16 @@
       if (!opts || !opts.enabled) return;
 
       const datasetIndex = Number.isInteger(opts.datasetIndex) ? opts.datasetIndex : 0;
-      const yOffset = Number.isFinite(opts.yOffsetPx) ? opts.yOffsetPx : 6;
-      const marginX = Number.isFinite(opts.marginXPx) ? opts.marginXPx : 24;
+      const yOffset   = Number.isFinite(opts.yOffsetPx)         ? opts.yOffsetPx         : 10;
+      const marginX   = Number.isFinite(opts.marginXPx)         ? opts.marginXPx         : 24;
+      const minSpacer = Number.isFinite(opts.minLabelSpacingPx) ? opts.minLabelSpacingPx : 50;
 
-      const ds = chart.data?.datasets?.[datasetIndex];
+      const ds     = chart.data?.datasets?.[datasetIndex];
       const scaleX = chart.scales?.x;
-      const area = chart.chartArea;
+      const area   = chart.chartArea;
 
       if (!ds || !Array.isArray(ds.data) || !ds.data.length) return;
-      if (!scaleX || !scaleX.ticks || !scaleX.ticks.length) return;
-      if (!area) return;
+      if (!scaleX || !area) return;
 
       const ctx = chart.ctx;
       ctx.save();
@@ -1051,30 +1051,26 @@
       ctx.textBaseline = 'bottom';
       ctx.fillStyle = '#e6ebff';
 
-      // Rysujemy nad obszarem wykresu, żeby nie nachodziło na lewą oś Y
-      const topY = Math.max(10, area.top - yOffset);
+      // Rysujemy tuż pod górną krawędzią obszaru wykresu,
+      // żeby nie wjeżdżać w legendę
+      const y = area.top + yOffset;
 
-      for (const tick of scaleX.ticks) {
-        const xVal = tick.value;
+      let lastXPix = -Infinity;
 
-        let bestAlt = null;
-        let bestDx = Infinity;
+      // Iterujemy po punktach danych (nie po tickach),
+      // żeby nie powtarzać etykiet co tick i mniej je zagęszczać
+      for (const p of ds.data) {
+        if (!p || typeof p.x === 'undefined' || !Number.isFinite(p.alt)) continue;
 
-        for (const p of ds.data) {
-          if (!p || typeof p.x === 'undefined' || !Number.isFinite(p.alt)) continue;
-          const dx = Math.abs(p.x - xVal);
-          if (dx < bestDx) {
-            bestDx = dx;
-            bestAlt = p.alt;
-          }
-        }
+        const xPixRaw = scaleX.getPixelForValue(p.x);
+        const xPix = clamp(xPixRaw, area.left + marginX, area.right - marginX);
 
-        if (!Number.isFinite(bestAlt)) continue;
+        // jeśli jest zbyt blisko poprzedniej etykiety – pomijamy,
+        // żeby napisy nie nachodziły na siebie
+        if (xPix - lastXPix < minSpacer) continue;
 
-        const xRaw = scaleX.getPixelForValue(xVal);
-        const xPix = clamp(xRaw, area.left + marginX, area.right - marginX);
-
-        ctx.fillText(bestAlt.toFixed(0) + ' m', xPix, topY);
+        ctx.fillText(p.alt.toFixed(0) + ' m', xPix, y);
+        lastXPix = xPix;
       }
 
       ctx.restore();
@@ -2391,4 +2387,3 @@
     restartFetching();
   });
 })();
-
