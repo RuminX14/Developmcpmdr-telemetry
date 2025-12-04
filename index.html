@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <title>MCPMDR – Telemetria radiosond</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
   <link
     rel="stylesheet"
     href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"
@@ -20,12 +21,16 @@
   <!-- Login overlay -->
   <div id="login-overlay" class="login-overlay">
     <div class="login-panel">
-      <h1 data-i18n="login_title">SYSTEM TELEMETRII RADIOSOND METEOROLOGICZNYCH</h1>
+      <h1 data-i18n="login_title">
+        SYSTEM TELEMETRII RADIOSOND METEOROLOGICZNYCH
+      </h1>
       <div class="login-field">
         <label for="password" data-i18n="login_password_label">Hasło</label>
         <input id="password" type="password" autocomplete="current-password" />
       </div>
-      <button id="login-btn" class="btn primary" data-i18n="login_button">Zaloguj</button>
+      <button id="login-btn" class="btn primary" data-i18n="login_button">
+        Zaloguj
+      </button>
       <div id="login-error" class="login-error"></div>
     </div>
   </div>
@@ -38,27 +43,62 @@
           SYSTEM TELEMETRII RADIOSOND METEOROLOGICZNYCH
         </span>
       </div>
+
       <div class="source-switch">
-        <span id="seg-ttgo" class="seg-btn" data-src="ttgo" data-i18n="source_ttgo">TTGO</span>
-        <span id="seg-radiosondy" class="seg-btn active" data-src="radiosondy" data-i18n="source_radiosondy">radiosondy.info</span>
+        <span
+          id="seg-ttgo"
+          class="seg-btn"
+          data-src="ttgo"
+          data-i18n="source_ttgo"
+        >TTGO</span>
+        <span
+          id="seg-radiosondy"
+          class="seg-btn active"
+          data-src="radiosondy"
+          data-i18n="source_radiosondy"
+        >radiosondy.info</span>
       </div>
+
       <div id="ttgo-url-wrap" class="ttgo-url hidden">
         <label for="ttgo-url" data-i18n="ttgo_url_label">URL TTGO</label>
-        <input id="ttgo-url" type="text" value="http://192.168.0.50/sondes.json" />
+        <input
+          id="ttgo-url"
+          type="text"
+          value="http://192.168.0.50/sondes.json"
+        />
       </div>
+
       <div id="radiosondy-search" class="search-box">
         <label for="sonde-id" data-i18n="sonde_id_label">ID sondy</label>
         <input id="sonde-id" type="text" placeholder="np. RS41" />
-        <button id="btn-search" class="btn small" data-i18n="btn_search">Szukaj</button>
-        <button id="btn-show-all" class="btn ghost small" data-i18n="btn_show_all">Wszystkie</button>
+        <button id="btn-search" class="btn small" data-i18n="btn_search">
+          Szukaj
+        </button>
+        <button
+          id="btn-show-all"
+          class="btn ghost small"
+          data-i18n="btn_show_all"
+        >
+          Wszystkie
+        </button>
       </div>
+
       <div class="tabs">
         <button class="tab active" data-view="telemetry">Telemetria</button>
-        <button class="tab" data-view="charts" data-i18n="charts_title">Dane graficzne</button>
+        <button class="tab" data-view="charts" data-i18n="charts_title">
+          Dane graficzne
+        </button>
       </div>
-      <div class="lang">
-        <button class="btn ghost small" data-lang="pl">PL</button>
-        <button class="btn ghost small" data-lang="en">EN</button>
+
+      <!-- Raport PDF + języki (PL/EN pod przyciskiem) -->
+      <div class="pdf-lang">
+        <button id="btn-pdf" class="btn primary">
+          Raport PDF
+        </button>
+        <div class="lang">
+          <button class="btn ghost small" data-lang="pl">PL</button>
+          <button class="btn ghost small" data-lang="en">EN</button>
+        </div>
       </div>
     </header>
 
@@ -68,8 +108,17 @@
       <!-- Telemetry view -->
       <section id="view-telemetry" class="view view-telemetry show">
         <div id="map" class="map"></div>
+
         <aside class="side-panel">
-          <div id="sonde-tabs" class="sonde-tabs"></div>
+          <!-- przewijane okienko z sondami (do 3 wierszy, poziomy scroll w CSS) -->
+          <div class="card sonde-list-card">
+            <div class="card-head">
+              <span>Aktywne radiosondy</span>
+            </div>
+            <div id="sonde-tabs" class="sonde-tabs sonde-tabs-scroll"></div>
+          </div>
+
+          <!-- panel z danymi wybranej sondy -->
           <div id="sonde-panel" class="sonde-panel-grid"></div>
         </aside>
       </section>
@@ -77,85 +126,199 @@
       <!-- Charts view -->
       <section id="view-charts" class="view view-charts">
         <div class="charts-scroll">
+
+          <!-- 1. Trasa lotu (mini-mapa) – PIERWSZA, mała karta -->
           <div class="card">
             <div class="card-head">
-              <span>Temperatura vs czas</span>
-              <button class="btn icon fullscreen-toggle" title="Pełny ekran">⤢</button>
+              <span>Trasa lotu (mini-mapa)</span>
+              <button class="btn icon fullscreen-toggle" title="Pełny ekran">
+                ⤢
+              </button>
+            </div>
+            <div class="card-body mini-map-body">
+              <div id="mini-map"></div>
+            </div>
+          </div>
+
+          <!-- 2. Temperatura w czasie -->
+          <div class="card">
+            <div class="card-head">
+              <span>Temperatura w czasie</span>
+              <button class="btn icon fullscreen-toggle" title="Pełny ekran">
+                ⤢
+              </button>
             </div>
             <div class="card-body">
               <canvas id="chart-volt-temp"></canvas>
             </div>
           </div>
 
+          <!-- 3. Liczba satelitów GNSS w czasie -->
           <div class="card">
             <div class="card-head">
-              <span>GNSS Satellites in use</span>
-              <button class="btn icon fullscreen-toggle" title="Pełny ekran">⤢</button>
+              <span>Liczba satelitów GNSS w czasie</span>
+              <button class="btn icon fullscreen-toggle" title="Pełny ekran">
+                ⤢
+              </button>
             </div>
             <div class="card-body">
               <canvas id="chart-gnss"></canvas>
             </div>
           </div>
 
-          <div class="card wide">
-            <div class="card-head">
-              <span>Payload Environmental Sensor Data</span>
-              <button class="btn icon fullscreen-toggle" title="Pełny ekran">⤢</button>
-            </div>
-            <div class="card-body">
-              <canvas id="chart-env"></canvas>
-            </div>
-          </div>
-
+          <!-- 4. Prędkość pozioma w czasie -->
           <div class="card">
             <div class="card-head">
-              <span>Reported Horizontal Velocity</span>
-              <button class="btn icon fullscreen-toggle" title="Pełny ekran">⤢</button>
+              <span>Prędkość pozioma w czasie</span>
+              <button class="btn icon fullscreen-toggle" title="Pełny ekran">
+                ⤢
+              </button>
             </div>
             <div class="card-body">
               <canvas id="chart-hvel"></canvas>
             </div>
           </div>
 
+          <!-- 5. Profil wiatru -->
+          <div class="card">
+            <div class="card-head">
+              <span>Profil wiatru (prędkość i kierunek vs wysokość)</span>
+              <button class="btn icon fullscreen-toggle" title="Pełny ekran">
+                ⤢
+              </button>
+            </div>
+            <div class="card-body">
+              <canvas id="chart-wind-profile"></canvas>
+            </div>
+          </div>
+
+          <!-- 6. Gęstość powietrza vs wysokość -->
           <div class="card">
             <div class="card-head">
               <span>Gęstość powietrza vs wysokość</span>
-              <button class="btn icon fullscreen-toggle" title="Pełny ekran">⤢</button>
+              <button class="btn icon fullscreen-toggle" title="Pełny ekran">
+                ⤢
+              </button>
             </div>
             <div class="card-body">
               <canvas id="chart-density"></canvas>
             </div>
           </div>
 
+          <!-- 7. RSSI i napięcie vs temperatura -->
           <div class="card">
             <div class="card-head">
-              <span>RSSI &amp; napięcie vs temperatura</span>
-              <button class="btn icon fullscreen-toggle" title="Pełny ekran">⤢</button>
+              <span>RSSI i napięcie vs temperatura</span>
+              <button class="btn icon fullscreen-toggle" title="Pełny ekran">
+                ⤢
+              </button>
             </div>
             <div class="card-body">
               <canvas id="chart-signal-temp"></canvas>
             </div>
           </div>
 
+          <!-- 8. Wskaźnik stabilności atmosfery -->
           <div class="card">
             <div class="card-head">
-              <span>Stabilność atmosfery (θ vs wysokość)</span>
-              <button class="btn icon fullscreen-toggle" title="Pełny ekran">⤢</button>
+              <span>Stabilność atmosfery</span>
+              <button class="btn icon fullscreen-toggle" title="Pełny ekran">
+                ⤢
+              </button>
             </div>
             <div class="card-body">
               <canvas id="chart-stability"></canvas>
             </div>
           </div>
 
-          <div class="card">
+          <!-- 9. Dane środowiskowe (T, RH, p) – szeroka karta na dole -->
+          <div class="card wide">
             <div class="card-head">
-              <span>Trasa lotu (mini-mapa)</span>
-              <button class="btn icon fullscreen-toggle" title="Pełny ekran">⤢</button>
+              <span>Dane środowiskowe (T, RH, p)</span>
+              <button class="btn icon fullscreen-toggle" title="Pełny ekran">
+                ⤢
+              </button>
             </div>
-            <div class="card-body mini-map-body">
-              <div id="mini-map"></div>
+            <div class="card-body">
+              <canvas id="chart-env"></canvas>
             </div>
           </div>
+
+          <!-- 10. CAPE / CIN (dynamicznie wypełniane przez JS) -->
+          <div id="cape-cin-card" class="card wide cape-cin-card"></div>
+
+          <!-- 11. Skew-T Log-P (profil T / Td) z przełącznikami warstw -->
+          <div class="card wide skewt-card">
+            <div class="card-head">
+              <span>Skew-T Log-P (profil T / Td)</span>
+
+              <!-- PANEL PRZEŁĄCZNIKÓW DLA WARSTW SKEW-T -->
+              <div class="skewt-controls">
+                <div class="skewt-toggle-group">
+                  <!-- podstawowy profil T/Td (zawsze na start włączony) -->
+                  <button
+                    type="button"
+                    class="btn ghost small skewt-toggle active"
+                    data-skew-layer="basic"
+                  >
+                    T / Td
+                  </button>
+
+                  <!-- grupy funkcji, żeby nie przeładować wykresu -->
+                  <button
+                    type="button"
+                    class="btn ghost small skewt-toggle active"
+                    data-skew-layer="thermo"
+                  >
+                    Termodyn.
+                  </button>
+
+                  <button
+                    type="button"
+                    class="btn ghost small skewt-toggle active"
+                    data-skew-layer="conv"
+                  >
+                    Konwekcja
+                  </button>
+
+                  <button
+                    type="button"
+                    class="btn ghost small skewt-toggle"
+                    data-skew-layer="wind"
+                  >
+                    Wiatr
+                  </button>
+
+                  <button
+                    type="button"
+                    class="btn ghost small skewt-toggle"
+                    data-skew-layer="marine"
+                  >
+                    Warstwa morska
+                  </button>
+                </div>
+
+                <!-- fullscreen jak w innych kartach -->
+                <button class="btn icon fullscreen-toggle" title="Pełny ekran">
+                  ⤢
+                </button>
+              </div>
+            </div>
+
+            <div class="card-body skewt-body">
+              <canvas id="chart-skewt"></canvas>
+
+              <!-- mała legenda co jest pod którą grupą -->
+              <div class="skewt-legend">
+                <div><strong>T / Td:</strong> profil temperatury i punktu rosy.</div>
+                <div><strong>Termodyn.:</strong> suche / wilgotne adiabaty, izolinie θ, linie mieszania.</div>
+                <div><strong>Konwekcja:</strong> LCL / LFC / EL, obszary CAPE / CIN.</div>
+                <div><strong>Wiatr:</strong> pionowy profil wiatru (barbule) przy prawej krawędzi.</div>
+                <div><strong>Warstwa morska:</strong> warstwa przywodna, inwersje i potencjalne poziomy chmur.</div>
+              </div>
+            </div>
+          </div>
+
         </div>
       </section>
     </main>
@@ -166,9 +329,12 @@
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
     crossorigin="anonymous"
   ></script>
-  <script
-    src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
-  ></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <!-- PDF: jsPDF + html2canvas -->
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
   <script src="assets/app.js"></script>
 </body>
 </html>
