@@ -1025,7 +1025,7 @@
     };
   }
 
-  // ========= Plugin: etykiety wysokości nad osią czasu (ulepszony) =========
+  // ========= Plugin: etykiety wysokości nad osią czasu (nad każdym tickiem) =========
   const altitudeTopAxisPlugin = {
     id: 'altitudeTopAxis',
     afterDraw(chart) {
@@ -1033,16 +1033,15 @@
       if (!opts || !opts.enabled) return;
 
       const datasetIndex = Number.isInteger(opts.datasetIndex) ? opts.datasetIndex : 0;
-      const yOffset   = Number.isFinite(opts.yOffsetPx)         ? opts.yOffsetPx         : 10;
-      const marginX   = Number.isFinite(opts.marginXPx)         ? opts.marginXPx         : 24;
-      const minSpacer = Number.isFinite(opts.minLabelSpacingPx) ? opts.minLabelSpacingPx : 50;
+      const yOffset = Number.isFinite(opts.yOffsetPx) ? opts.yOffsetPx : 10;
+      const marginX = Number.isFinite(opts.marginXPx) ? opts.marginXPx : 24;
 
-      const ds     = chart.data?.datasets?.[datasetIndex];
+      const ds = chart.data?.datasets?.[datasetIndex];
       const scaleX = chart.scales?.x;
-      const area   = chart.chartArea;
+      const area = chart.chartArea;
 
       if (!ds || !Array.isArray(ds.data) || !ds.data.length) return;
-      if (!scaleX || !area) return;
+      if (!scaleX || !scaleX.ticks || !scaleX.ticks.length || !area) return;
 
       const ctx = chart.ctx;
       ctx.save();
@@ -1051,26 +1050,34 @@
       ctx.textBaseline = 'bottom';
       ctx.fillStyle = '#e6ebff';
 
-      // Rysujemy tuż pod górną krawędzią obszaru wykresu,
-      // żeby nie wjeżdżać w legendę
+      // rysujemy tuż pod górną krawędzią obszaru wykresu
       const y = area.top + yOffset;
+      let lastAlt = null;
 
-      let lastXPix = -Infinity;
-
-      // Iterujemy po punktach danych (nie po tickach),
-      // żeby nie powtarzać etykiet co tick i mniej je zagęszczać
-      for (const p of ds.data) {
-        if (!p || typeof p.x === 'undefined' || !Number.isFinite(p.alt)) continue;
-
-        const xPixRaw = scaleX.getPixelForValue(p.x);
+      // iterujemy po tickach skali X – wysokość nad każdą "godziną"
+      for (const tick of scaleX.ticks) {
+        const xVal = tick.value;
+        const xPixRaw = scaleX.getPixelForValue(xVal);
         const xPix = clamp(xPixRaw, area.left + marginX, area.right - marginX);
 
-        // jeśli jest zbyt blisko poprzedniej etykiety – pomijamy,
-        // żeby napisy nie nachodziły na siebie
-        if (xPix - lastXPix < minSpacer) continue;
+        // znajdź punkt danych najbliższy w czasie temu tickowi
+        let bestAlt = null;
+        let bestDx = Infinity;
+        for (const p of ds.data) {
+          if (!p || typeof p.x === 'undefined' || !Number.isFinite(p.alt)) continue;
+          const dx = Math.abs(p.x - xVal);
+          if (dx < bestDx) {
+            bestDx = dx;
+            bestAlt = p.alt;
+          }
+        }
+        if (!Number.isFinite(bestAlt)) continue;
 
-        ctx.fillText(p.alt.toFixed(0) + ' m', xPix, y);
-        lastXPix = xPix;
+        // jeśli wysokość prawie się nie zmieniła – pomijamy, aby nie dublować etykiet
+        if (lastAlt !== null && Math.abs(bestAlt - lastAlt) < 10) continue;
+
+        ctx.fillText(bestAlt.toFixed(0) + ' m', xPix, y);
+        lastAlt = bestAlt;
       }
 
       ctx.restore();
