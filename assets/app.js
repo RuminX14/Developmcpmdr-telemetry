@@ -1831,10 +1831,8 @@
             yAxisID: 'y',
             data: [],
             showLine: false,
-            pointRadius: 3,
-            borderWidth: 1.2,
-            borderColor: '#b38cff',      // fioletowe obramowanie punktów
-            backgroundColor: '#b38cff'   // fioletowe wypełnienie punktów i prostokąta w legendzie
+            pointRadius: 2,
+            borderWidth: 1.2
             },
             {
               label: 'Kierunek [°] (opadanie)',
