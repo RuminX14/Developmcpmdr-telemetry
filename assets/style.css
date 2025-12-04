@@ -279,6 +279,7 @@ body {
   grid-template-columns: minmax(0, 1.6fr) minmax(280px, min(30vw, 460px));
   gap: 16px;
   padding: 8px 16px 16px;
+  min-height: 0; /* ważne dla scrolli w prawej kolumnie */
 }
 
 .map {
@@ -291,16 +292,47 @@ body {
 
 .side-panel {
   height: 100%;
+  min-height: 0;        /* żeby wewnętrzny grid mógł się kurczyć */
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
+/* Karta z listą sond */
+
+.sonde-list-card {
+  flex: 0 0 auto;
+  min-height: 90px;
+}
+
+/* Pasek z aktywnymi sondami – do 3 wierszy, przewijany poziomo */
+
 .sonde-tabs {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
+  grid-template-rows: repeat(3, auto); /* maks. 3 wiersze */
+  align-content: flex-start;
   gap: 6px;
-  margin-bottom: 6px;
+  padding: 4px 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(61, 212, 255, 0.55) transparent;
+}
+
+.sonde-tabs::-webkit-scrollbar {
+  height: 6px;
+}
+
+.sonde-tabs::-webkit-scrollbar-track {
+  background: rgba(10, 15, 32, 0.9);
+  border-radius: 999px;
+}
+
+.sonde-tabs::-webkit-scrollbar-thumb {
+  background: rgba(61, 212, 255, 0.55);
+  border-radius: 999px;
 }
 
 .sonde-tab {
@@ -311,6 +343,9 @@ body {
   color: #e6ebff;
   font-size: 11px;
   cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
 }
 
 .sonde-tab.active {
@@ -319,8 +354,11 @@ body {
   font-weight: 600;
 }
 
+/* Panel danych sondy – przewijany w pionie */
+
 .sonde-panel-grid {
   flex: 1;
+  min-height: 0;          /* kluczowe, żeby overflow-y zadziałało */
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
@@ -380,13 +418,14 @@ body {
   padding: 8px 16px 16px;
 }
 
-.charts-scroll {
+.view-charts .charts-scroll {
   width: 100%;
   height: 100%;
   overflow-y: auto;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  grid-auto-rows: minmax(260px, auto);
   padding-bottom: 12px;
 }
 
@@ -464,11 +503,156 @@ body {
     grid-template-columns: 1fr;
   }
 
-  .charts-scroll {
+  .view-charts .charts-scroll {
     grid-template-columns: 1fr;
   }
 
   .card.wide {
     grid-column: auto;
   }
+}
+
+/* --- Wskaźnik stabilności w formie „paska” --- */
+
+.stability-box {
+  padding: 10px 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13px;
+  color: #e6ebff;
+}
+
+.stability-box-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.stability-box-head .gamma {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.stability-box-head .class-label {
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+.stability-bar {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  background: #151a28;
+  overflow: hidden;
+}
+
+.stability-bar-inner {
+  position: absolute;
+  inset: 0;
+  width: 0%;
+  background: linear-gradient(90deg, #3dd4ff, #7bffb0);
+  transition: width 0.3s ease;
+}
+
+.stability-legenda {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+/* kolory etykiety wg klasy stabilności */
+
+.stability--unstable .class-label {
+  color: #ffb86c;
+}
+
+.stability--very-unstable .class-label {
+  color: #ff7c7c;
+}
+
+.stability--neutral .class-label {
+  color: #7bffb0;
+}
+
+.stability--stable .class-label {
+  color: #3dd4ff;
+}
+/* --- Karta CAPE / CIN --- */
+
+.cape-cin-card .card-body {
+  padding-top: 6px;
+}
+
+.cape-cin-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.cape-cin-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.cape-cin-block {
+  flex: 0 0 150px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #151a28;
+  border: 1px solid rgba(61, 212, 255, 0.25);
+}
+
+.cape-cin-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #8a94b0;
+}
+
+.cape-cin-value {
+  font-size: 18px;
+  margin-top: 4px;
+}
+
+.cape-cin-level {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #c5d0ff;
+}
+
+.cape-cin-extra {
+  font-size: 12px;
+  color: #a0a9c8;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cape-cin-note {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #8a94b0;
+}
+
+/* --- Skew-T log-P --- */
+
+.skewt-card .card-body {
+  min-height: 420px;          /* wygodna wysokość, żeby profil był czytelny */
+}
+
+.skewt-card canvas#chart-skewt {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* karta CAPE/CIN – szeroka, osobna na dole */
+.cape-cin-card {
+  grid-column: span 2;
+  margin-top: 12px;
 }
