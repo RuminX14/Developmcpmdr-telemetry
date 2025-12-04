@@ -1,4 +1,3 @@
-
 (() => {
   'use strict';
 
@@ -1034,7 +1033,8 @@
       if (!opts || !opts.enabled) return;
 
       const datasetIndex = Number.isInteger(opts.datasetIndex) ? opts.datasetIndex : 0;
-      const yOffset = Number.isFinite(opts.yOffsetPx) ? opts.yOffsetPx : 8;
+      const yOffset = Number.isFinite(opts.yOffsetPx) ? opts.yOffsetPx : 6;
+      const marginX = Number.isFinite(opts.marginXPx) ? opts.marginXPx : 24;
 
       const ds = chart.data?.datasets?.[datasetIndex];
       const scaleX = chart.scales?.x;
@@ -1051,7 +1051,8 @@
       ctx.textBaseline = 'bottom';
       ctx.fillStyle = '#e6ebff';
 
-      const topY = area.top + yOffset;
+      // Rysujemy nad obszarem wykresu, żeby nie nachodziło na lewą oś Y
+      const topY = Math.max(10, area.top - yOffset);
 
       for (const tick of scaleX.ticks) {
         const xVal = tick.value;
@@ -1070,7 +1071,9 @@
 
         if (!Number.isFinite(bestAlt)) continue;
 
-        const xPix = scaleX.getPixelForValue(xVal);
+        const xRaw = scaleX.getPixelForValue(xVal);
+        const xPix = clamp(xRaw, area.left + marginX, area.right - marginX);
+
         ctx.fillText(bestAlt.toFixed(0) + ' m', xPix, topY);
       }
 
@@ -2388,3 +2391,4 @@
     restartFetching();
   });
 })();
+
