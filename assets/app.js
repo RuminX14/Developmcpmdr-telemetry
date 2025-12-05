@@ -1865,11 +1865,7 @@
               data: [],
               showLine: false,
               pointRadius: 2,
-              borderWidth: 1.2,
-              borderColor: '#c27cff',
-              backgroundColor: '#c27cff',
-              pointBackgroundColor: '#c27cff',
-              pointBorderColor: '#c27cff'
+              borderWidth: 1.2
             },
             {
               label: 'Kierunek [°] (opadanie)',
@@ -2287,7 +2283,7 @@
     }
 
     const viewTelemetry = document.getElementById('view-telemetry');
-    const viewCharts = document.getElementById('view-charts');
+    the viewCharts = document.getElementById('view-charts');
     const chartsWasShown = viewCharts && viewCharts.classList.contains('show');
 
     if (viewTelemetry && viewCharts) {
