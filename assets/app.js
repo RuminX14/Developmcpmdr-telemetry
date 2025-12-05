@@ -1040,8 +1040,8 @@
       ctx.textBaseline = 'bottom';
       ctx.fillStyle = '#e6ebff';
 
-      const yOffset = Number.isFinite(opts.yOffsetPx) ? opts.yOffsetPx : 10;
-
+      const topY = area.top + yOffset;   // napisy wewnątrz pola wykresu
+      
       for (const tick of scaleX.ticks) {
         const xVal = tick.value;
 
