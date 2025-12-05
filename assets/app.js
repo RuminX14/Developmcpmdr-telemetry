@@ -373,12 +373,10 @@
     }
 
     // Przełączniki warstw Skew-T – dopasowane do przycisków w index.html
-    // <button class="skewt-toggle" data-skew-layer="basic|thermo|conv|wind|marine">
     $$('.skewt-toggle').forEach(btn => {
       const layer = btn.dataset.skewLayer;
       if (!layer) return;
 
-      // Inicjalizacja stanu przycisku na podstawie state.skewtLayers
       if (!(layer in state.skewtLayers)) {
         state.skewtLayers[layer] = btn.classList.contains('active');
       } else {
@@ -436,7 +434,6 @@
       const data = await res.json();
       $('#status-line').textContent =
         'TTGO: odebrano dane (' + (Array.isArray(data) ? data.length : 1) + ')';
-      // TODO: tu w przyszłości można wypełnić dane GNSS / RSSI / itp. dla wykresów
     } catch (e) {
       $('#status-line').textContent = 'TTGO: błąd pobierania: ' + e.message;
     }
@@ -539,7 +536,6 @@
 
     let debugCount = 0;
 
-    // najpierw zbieramy punkty do mapy: id -> tablica punktów
     const perSonde = new Map();
 
     for (let li = 1; li < lines.length; li++) {
@@ -632,7 +628,6 @@
       debugCount++;
     }
 
-    // teraz dopiero łączymy w historię, w kolejności czasowej rosnącej
     for (const [id, arr] of perSonde.entries()) {
       arr.sort((a, b) => a.point.time - b.point.time);
       const s = getOrCreateSonde(id);
@@ -641,7 +636,6 @@
       }
     }
 
-    // czyszczenie starych, zakończonych sond
     const now = Date.now();
     for (const [id, s] of state.sondes) {
       if (!s.time) continue;
@@ -811,14 +805,12 @@
     s.marker.bindTooltip(label, { direction: 'top', offset: [0, -8] });
   }
 
-  // Launch / Burst na trasie lotu (start + apex, ale burst tylko przy opadaniu)
   function updateLaunchBurstMarkers(s) {
     if (!state.map || !s.history.length) return;
 
     const sorted = s.history.slice().sort((a, b) => a.time - b.time);
     const launch = sorted[0];
 
-    // szukamy maksymalnej wysokości (apex)
     let apex = null;
     for (const h of sorted) {
       if (!Number.isFinite(h.alt)) continue;
@@ -827,7 +819,6 @@
 
     const last = sorted[sorted.length - 1];
 
-    // LAUNCH – zawsze pokazujemy, jeśli mamy pierwszy punkt
     if (launch && Number.isFinite(launch.lat) && Number.isFinite(launch.lon)) {
       const latlng = [launch.lat, launch.lon];
       if (!s.launchMarker) {
@@ -843,8 +834,7 @@
       }
     }
 
-    // BURST – pojawia się dopiero, gdy sonda ZACZNIE SPADAĆ
-    const HYST = 10; // 10 m
+    const HYST = 10;
     const canShowBurst =
       apex &&
       last &&
@@ -1025,7 +1015,7 @@
     };
   }
 
-  // ========= Plugin: etykiety wysokości nad osią czasu (nad każdym tickiem) =========
+  // ========= Plugin: etykiety wysokości nad osią czasu =========
   const altitudeTopAxisPlugin = {
     id: 'altitudeTopAxis',
     afterDraw(chart) {
@@ -1033,15 +1023,15 @@
       if (!opts || !opts.enabled) return;
 
       const datasetIndex = Number.isInteger(opts.datasetIndex) ? opts.datasetIndex : 0;
-      const yOffset = Number.isFinite(opts.yOffsetPx) ? opts.yOffsetPx : 10;
-      const marginX = Number.isFinite(opts.marginXPx) ? opts.marginXPx : 24;
+      const yOffset = Number.isFinite(opts.yOffsetPx) ? opts.yOffsetPx : 8;
 
       const ds = chart.data?.datasets?.[datasetIndex];
       const scaleX = chart.scales?.x;
       const area = chart.chartArea;
 
       if (!ds || !Array.isArray(ds.data) || !ds.data.length) return;
-      if (!scaleX || !scaleX.ticks || !scaleX.ticks.length || !area) return;
+      if (!scaleX || !scaleX.ticks || !scaleX.ticks.length) return;
+      if (!area) return;
 
       const ctx = chart.ctx;
       ctx.save();
@@ -1050,19 +1040,14 @@
       ctx.textBaseline = 'bottom';
       ctx.fillStyle = '#e6ebff';
 
-      // rysujemy tuż pod górną krawędzią obszaru wykresu
-      const y = area.top + yOffset;
-      let lastAlt = null;
+      const topY = area.top - yOffset;
 
-      // iterujemy po tickach skali X – wysokość nad każdą "godziną"
       for (const tick of scaleX.ticks) {
         const xVal = tick.value;
-        const xPixRaw = scaleX.getPixelForValue(xVal);
-        const xPix = clamp(xPixRaw, area.left + marginX, area.right - marginX);
 
-        // znajdź punkt danych najbliższy w czasie temu tickowi
         let bestAlt = null;
         let bestDx = Infinity;
+
         for (const p of ds.data) {
           if (!p || typeof p.x === 'undefined' || !Number.isFinite(p.alt)) continue;
           const dx = Math.abs(p.x - xVal);
@@ -1071,20 +1056,18 @@
             bestAlt = p.alt;
           }
         }
+
         if (!Number.isFinite(bestAlt)) continue;
 
-        // jeśli wysokość prawie się nie zmieniła – pomijamy, aby nie dublować etykiet
-        if (lastAlt !== null && Math.abs(bestAlt - lastAlt) < 10) continue;
-
-        ctx.fillText(bestAlt.toFixed(0) + ' m', xPix, y);
-        lastAlt = bestAlt;
+        const xPix = scaleX.getPixelForValue(xVal);
+        ctx.fillText(bestAlt.toFixed(0) + ' m', xPix, topY);
       }
 
       ctx.restore();
     }
   };
 
-  // ======= Skew-T Log-P diagram =======
+  // ======= Skew-T Log-P diagram (z auto-fit T/p) =======
   function renderSkewT(s) {
     const canvas = document.getElementById('chart-skewt');
     if (!canvas) return;
@@ -1117,7 +1100,6 @@
     const plotW = width - left - right;
     const plotH = height - top - bottom;
 
-    // tło
     ctx.fillStyle = '#050814';
     ctx.fillRect(0, 0, width, height);
 
@@ -1132,40 +1114,13 @@
       return;
     }
 
-    // ciśnienie 1000–100 hPa (log-p)
-    const pMin = 100;
-    const pMax = 1000;
-    const logPmin = Math.log(pMin);
-    const logPmax = Math.log(pMax);
-    const yForP = p => {
-      const lp = Math.log(clamp(p, pMin, pMax));
-      const frac = (lp - logPmin) / (logPmax - logPmin);
-      return top + frac * plotH;
-    };
-
-    // temperatura – zakres (°C)
-    const tMin = -60;
-    const tMax = 40;
-    const refLogP = Math.log(1000);
-    const skew = 35; // pochylanie izoterm
-
-    const xForT = (T, p) => {
-      const lp = Math.log(clamp(p, pMin, pMax));
-      const skewedT = T + (lp - refLogP) * skew;
-      const frac = (skewedT - tMin) / (tMax - tMin);
-      return left + frac * plotW;
-    };
-
-    // Dane: profil T i Td
     const hist = s.history
       .filter(h =>
         Number.isFinite(h.pressure) &&
-        Number.isFinite(h.temp) &&
-        h.pressure >= pMin &&
-        h.pressure <= pMax
+        Number.isFinite(h.temp)
       )
       .slice()
-      .sort((a, b) => b.pressure - a.pressure); // od dołu do góry atmosfery
+      .sort((a, b) => b.pressure - a.pressure); // od dołu do góry
 
     if (!hist.length) {
       ctx.strokeStyle = 'rgba(134,144,176,0.7)';
@@ -1178,30 +1133,110 @@
       return;
     }
 
-    // ====== CZĘŚĆ W RAMCE (CLIP), żeby NIC nie wyjeżdżało poza osie ======
+    // --- AUTO-FIT zakresu ciśnień i temperatury z marginesem ---
+    let pMin = 100;
+    let pMax = 1000;
+    let tMin = -60;
+    let tMax = 40;
+
+    {
+      let dataPMin = Infinity;
+      let dataPMax = -Infinity;
+      let dataTMin = Infinity;
+      let dataTMax = -Infinity;
+
+      for (const h of hist) {
+        if (Number.isFinite(h.pressure)) {
+          dataPMin = Math.min(dataPMin, h.pressure);
+          dataPMax = Math.max(dataPMax, h.pressure);
+        }
+        if (Number.isFinite(h.temp)) {
+          dataTMin = Math.min(dataTMin, h.temp);
+          dataTMax = Math.max(dataTMax, h.temp);
+        }
+        const Td = dewPoint(h.temp, h.humidity);
+        if (Number.isFinite(Td)) {
+          dataTMin = Math.min(dataTMin, Td);
+          dataTMax = Math.max(dataTMax, Td);
+        }
+      }
+
+      if (dataPMin < Infinity && dataPMax > -Infinity) {
+        pMin = Math.max(50, dataPMin - 50);
+        pMax = Math.min(1050, dataPMax + 50);
+        if (pMin >= pMax) {
+          pMin = 100;
+          pMax = 1000;
+        }
+      }
+
+      if (dataTMin < Infinity && dataTMax > -Infinity) {
+        const marginT = 10;
+        tMin = dataTMin - marginT;
+        tMax = dataTMax + marginT;
+
+        tMin = Math.max(-90, tMin);
+        tMax = Math.min(50, tMax);
+
+        if (tMax - tMin < 40) {
+          const mid = (tMax + tMin) / 2;
+          tMin = mid - 20;
+          tMax = mid + 20;
+        }
+      }
+    }
+
+    const logPmin = Math.log(pMin);
+    const logPmax = Math.log(pMax);
+    const yForP = p => {
+      const lp = Math.log(clamp(p, pMin, pMax));
+      const frac = (lp - logPmin) / (logPmax - logPmin);
+      return top + frac * plotH;
+    };
+
+    const refLogP = Math.log(1000);
+    const skew = 35;
+    const xForT = (T, p) => {
+      const lp = Math.log(clamp(p, pMin, pMax));
+      const skewedT = T + (lp - refLogP) * skew;
+      const frac = (skewedT - tMin) / (tMax - tMin);
+      return left + frac * plotW;
+    };
+
+    const pStepMajor = 50;
+    const pGridMin = Math.ceil(pMin / pStepMajor) * pStepMajor;
+    const pGridMax = Math.floor(pMax / pStepMajor) * pStepMajor;
+
+    const tStep = 10;
+    const tGridMin = Math.ceil(tMin / tStep) * tStep;
+    const tGridMax = Math.floor(tMax / tStep) * tStep;
+
+    // ====== CLIP: wszystko wewnątrz ramki ======
     ctx.save();
     ctx.beginPath();
     ctx.rect(left, top, plotW, plotH);
     ctx.clip();
 
-    // --- siatka: isobary (linie), bez napisów ---
+    // --- isobary ---
     ctx.font = '10px system-ui, sans-serif';
     ctx.strokeStyle = 'rgba(134,144,176,0.35)';
     ctx.lineWidth = 1;
-    for (let p = 1000; p >= 100; p -= 50) {
-      const y = yForP(p);
-      ctx.beginPath();
-      ctx.moveTo(left, y);
-      ctx.lineTo(left + plotW, y);
-      ctx.stroke();
+    if (pGridMax >= pGridMin) {
+      for (let p = pGridMax; p >= pGridMin; p -= pStepMajor) {
+        const y = yForP(p);
+        ctx.beginPath();
+        ctx.moveTo(left, y);
+        ctx.lineTo(left + plotW, y);
+        ctx.stroke();
+      }
     }
 
-    // --- izotermy T co 10°C ---
+    // --- izotermy ---
     ctx.setLineDash([4, 4]);
-    for (let T = -60; T <= 40; T += 10) {
+    for (let T = tGridMin; T <= tGridMax; T += tStep) {
       let firstIso = true;
       ctx.beginPath();
-      for (let p = 1000; p >= 100; p -= 10) {
+      for (let p = pMax; p >= pMin; p -= 10) {
         const x = xForT(T, p);
         const y = yForP(p);
         if (firstIso) {
@@ -1215,13 +1250,14 @@
     }
     ctx.setLineDash([]);
 
-    // --- profil temperatury (basic) ---
+    // --- profil temperatury ---
     if (showBasic) {
       ctx.strokeStyle = '#ffb86c';
       ctx.lineWidth = 2;
       ctx.beginPath();
       let firstT = true;
       for (const h of hist) {
+        if (!Number.isFinite(h.pressure) || !Number.isFinite(h.temp)) continue;
         const x = xForT(h.temp, h.pressure);
         const y = yForP(h.pressure);
         if (firstT) {
@@ -1234,7 +1270,7 @@
       ctx.stroke();
     }
 
-    // --- profil punktu rosy (basic) ---
+    // --- profil punktu rosy ---
     if (showBasic) {
       ctx.strokeStyle = '#7bffb0';
       ctx.lineWidth = 1.5;
@@ -1242,7 +1278,7 @@
       let firstD = true;
       for (const h of hist) {
         const Td = dewPoint(h.temp, h.humidity);
-        if (!Number.isFinite(Td)) continue;
+        if (!Number.isFinite(Td) || !Number.isFinite(h.pressure)) continue;
         const x = xForT(Td, h.pressure);
         const y = yForP(h.pressure);
         if (firstD) {
@@ -1255,7 +1291,7 @@
       ctx.stroke();
     }
 
-    // --- suche adiabaty (thermo) ---
+    // --- suche adiabaty ---
     if (showThermo) {
       ctx.save();
       ctx.strokeStyle = 'rgba(255,184,108,0.45)';
@@ -1265,7 +1301,7 @@
       for (let theta = 280; theta <= 360; theta += 10) {
         let first = true;
         ctx.beginPath();
-        for (let p = 1000; p >= 100; p -= 10) {
+        for (let p = pMax; p >= pMin; p -= 10) {
           const Tk = theta / Math.pow(1000 / p, 0.2854);
           const T = Tk - 273.15;
           const x = xForT(T, p);
@@ -1283,7 +1319,7 @@
       ctx.restore();
     }
 
-    // --- linie mieszania (thermo – przybliżone) ---
+    // --- linie mieszania (przybliżone) ---
     if (showThermo) {
       ctx.save();
       ctx.strokeStyle = 'rgba(123,255,176,0.35)';
@@ -1291,10 +1327,12 @@
       ctx.setLineDash([2, 4]);
 
       const wValues = [2, 4, 8, 12, 16]; // g/kg
+      const mixTop = Math.max(pMin, 400);
+      const mixBottom = pMax;
       for (const w of wValues) {
         let first = true;
         ctx.beginPath();
-        for (let p = 1000; p >= 400; p -= 10) {
+        for (let p = mixBottom; p >= mixTop; p -= 10) {
           const Td = 5 + 8 * Math.log(w) - 0.005 * (p - 1000);
           const x = xForT(Td, p);
           const y = yForP(p);
@@ -1311,7 +1349,7 @@
       ctx.restore();
     }
 
-    // --- LCL (conv) ---
+    // --- LCL ---
     if (showConv && Number.isFinite(s.lclHeight)) {
       const targetZ = s.lclHeight;
       let best = null;
@@ -1325,7 +1363,7 @@
         }
       }
 
-      if (best && Number.isFinite(best.pressure) && Number.isFinite(best.temp)) {
+      if (best && Number.isFinite(best.pressure)) {
         const pLcl = best.pressure;
         const surface = hist[0];
         let tLcl = best.temp;
@@ -1353,7 +1391,7 @@
       }
     }
 
-    // --- Poziom 0°C (marine lub conv) ---
+    // --- 0°C izoterma ---
     if (showMarine || showConv) {
       ctx.save();
       ctx.strokeStyle = '#3dd4ff';
@@ -1362,7 +1400,7 @@
 
       ctx.beginPath();
       let first = true;
-      for (let p = 1000; p >= 100; p -= 10) {
+      for (let p = pMax; p >= pMin; p -= 10) {
         const x = xForT(0, p);
         const y = yForP(p);
         if (first) {
@@ -1376,33 +1414,30 @@
       ctx.restore();
     }
 
-    // koniec części z clipem
-    ctx.restore();
+    ctx.restore(); // koniec clip
 
-    // ====== ELEMENTY POZA RAMKĄ (napisy, legenda, profil wiatru) ======
+    // ====== ELEMENTY POZA RAMKĄ ======
 
-    // ramka
     ctx.strokeStyle = 'rgba(134,144,176,0.7)';
     ctx.lineWidth = 1;
     ctx.strokeRect(left, top, plotW, plotH);
 
-    // opisy ciśnienia po lewej
     ctx.font = '10px system-ui, sans-serif';
     ctx.fillStyle = '#8a94b0';
-    for (let p = 1000; p >= 100; p -= 50) {
-      const y = yForP(p);
-      ctx.fillText(p.toString(), 6, y + 3);
+    if (pGridMax >= pGridMin) {
+      for (let p = pGridMax; p >= pGridMin; p -= pStepMajor) {
+        const y = yForP(p);
+        ctx.fillText(p.toString(), 6, y + 3);
+      }
     }
 
-    // opisy temperatury na dole
-    for (let T = -60; T <= 40; T += 10) {
-      const xLabel = xForT(T, 1000);
+    for (let T = tGridMin; T <= tGridMax; T += tStep) {
+      const xLabel = xForT(T, pMax);
       if (xLabel > left && xLabel < left + plotW) {
         ctx.fillText(T.toString(), xLabel - 8, height - 6);
       }
     }
 
-    // prosty profil wiatru przy prawej krawędzi (wind)
     if (showWind) {
       ctx.save();
       ctx.font = '10px system-ui, sans-serif';
@@ -1410,11 +1445,11 @@
       ctx.strokeStyle = '#e6ebff';
       ctx.lineWidth = 1;
 
-      const xWind = left + plotW + 4; // w prawym marginesie
-      const maxLen = 24; // max długość strzałki
+      const xWind = left + plotW + 4;
+      const maxLen = 24;
 
       function drawArrow(y, speed, dirDeg) {
-        const spd = clamp(speed || 0, 0, 60); // [m/s]
+        const spd = clamp(speed || 0, 0, 60);
         const len = (spd / 60) * maxLen;
 
         const rad = (270 - dirDeg) * Math.PI / 180;
@@ -1481,7 +1516,6 @@
       ctx.restore();
     }
 
-    // legenda
     ctx.fillStyle = '#e6ebff';
     ctx.font = '11px system-ui, sans-serif';
     const legendY = top + 12;
@@ -1585,7 +1619,6 @@
     const s = state.sondes.get(state.activeId);
     const hist = s ? s.history.slice().sort((a, b) => a.time - b.time) : [];
 
-    // mała mapa
     renderMiniMap(s, hist);
 
     // 1) Temperatura vs czas
@@ -1635,7 +1668,7 @@
       chart.update('none');
     })();
 
-    // 2) GNSS – liczba satelitów w czasie (placeholder)
+    // 2) GNSS – placeholder
     (function () {
       const id = 'chart-gnss';
       const chart = ensureChart(id, () => ({
@@ -1826,13 +1859,17 @@
               borderDash: [4, 3]
             },
             {
-            label: 'Kierunek [°] (wznoszenie)',
-            xAxisID: 'xDir',
-            yAxisID: 'y',
-            data: [],
-            showLine: false,
-            pointRadius: 2,
-            borderWidth: 1.2
+              label: 'Kierunek [°] (wznoszenie)',
+              xAxisID: 'xDir',
+              yAxisID: 'y',
+              data: [],
+              showLine: false,
+              pointRadius: 2,
+              borderWidth: 1.2,
+              borderColor: '#c27cff',
+              backgroundColor: '#c27cff',
+              pointBackgroundColor: '#c27cff',
+              pointBorderColor: '#c27cff'
             },
             {
               label: 'Kierunek [°] (opadanie)',
@@ -1990,7 +2027,7 @@
       }));
       if (!chart) return;
 
-      const R = 287; // J/(kg*K)
+      const R = 287;
       const densityData = hist
         .filter(h => Number.isFinite(h.pressure) && Number.isFinite(h.temp) && Number.isFinite(h.alt))
         .map(h => {
@@ -2004,7 +2041,7 @@
       chart.update('none');
     })();
 
-    // 6) Moc sygnału i napięcie vs temperatura
+    // 6) RSSI i napięcie vs temperatura
     (function () {
       const id = 'chart-signal-temp';
       const chart = ensureChart(id, () => ({
@@ -2065,15 +2102,12 @@
       chart.update('none');
     })();
 
-    // 7) Wskaźnik stabilności atmosfery – karta z paskiem
     updateStabilityBox(s);
-    // 8) Karta CAPE / CIN – pod wykresami
     renderCapeCinCard(s);
-    // 9) Skew-T log-p
     renderSkewT(s);
   }
 
-  // ======= Wskaźnik stabilności – karta z paskiem =======
+  // ======= Wskaźnik stabilności =======
   function updateStabilityBox(s) {
     const canvas = document.getElementById('chart-stability');
     if (!canvas) return;
@@ -2109,7 +2143,7 @@
       return;
     }
 
-    const gamma = s.stabilityIndex;     // K/km
+    const gamma = s.stabilityIndex;
     const cls = s.stabilityClass || '—';
 
     const percent = Math.max(0, Math.min(100, (gamma / 12) * 100));
@@ -2137,7 +2171,7 @@
     `;
   }
 
-  // ======= Karta CAPE / CIN – pod wykresami =======
+  // ======= Karta CAPE / CIN =======
   function renderCapeCinCard(s) {
     const chartsView = document.getElementById('view-charts');
     if (!chartsView) return;
@@ -2233,7 +2267,7 @@
     `;
   }
 
-  // ======= Raport PDF (bez polskich znakow, z wykresami i minimapa) =======
+  // ======= Raport PDF =======
   async function generatePdfReport() {
     const jsPdfCtor =
       (window.jspdf && window.jspdf.jsPDF) ||
