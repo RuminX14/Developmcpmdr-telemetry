@@ -1023,7 +1023,7 @@
       if (!opts || !opts.enabled) return;
 
       const datasetIndex = Number.isInteger(opts.datasetIndex) ? opts.datasetIndex : 0;
-      const yOffset = Number.isFinite(opts.yOffsetPx) ? opts.yOffsetPx : 8;
+      const yOffset = Number.isFinite(opts.yOffsetPx) ? opts.yOffsetPx : 10;
 
       const ds = chart.data?.datasets?.[datasetIndex];
       const scaleX = chart.scales?.x;
