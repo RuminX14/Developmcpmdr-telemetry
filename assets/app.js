@@ -1023,7 +1023,7 @@
       if (!opts || !opts.enabled) return;
 
       const datasetIndex = Number.isInteger(opts.datasetIndex) ? opts.datasetIndex : 0;
-      const yOffset = Number.isFinite(opts.yOffsetPx) ? opts.yOffsetPx : 8;
+      const yOffset = Number.isFinite(opts.yOffsetPx) ? opts.yOffsetPx : 10; // trochę większy odstęp w dół
 
       const ds = chart.data?.datasets?.[datasetIndex];
       const scaleX = chart.scales?.x;
@@ -1040,8 +1040,13 @@
       ctx.textBaseline = 'bottom';
       ctx.fillStyle = '#e6ebff';
 
-      const topY = area.top + yOffset;   // napisy wewnątrz pola wykresu
-      
+      // rysuj NAD każdą godziną, ale wewnątrz pola wykresu
+      const topY = area.top + yOffset;
+
+      // marginesy poziome, żeby nie wchodzić na lewą/prawą oś
+      const paddingLeft = area.left + 16;
+      const paddingRight = area.right - 6;
+
       for (const tick of scaleX.ticks) {
         const xVal = tick.value;
 
@@ -1059,7 +1064,12 @@
 
         if (!Number.isFinite(bestAlt)) continue;
 
-        const xPix = scaleX.getPixelForValue(xVal);
+        let xPix = scaleX.getPixelForValue(xVal);
+
+        // nie pozwól, żeby środek napisu był zbyt blisko lewej/prawej krawędzi
+        if (xPix < paddingLeft) xPix = paddingLeft;
+        if (xPix > paddingRight) xPix = paddingRight;
+
         ctx.fillText(bestAlt.toFixed(0) + ' m', xPix, topY);
       }
 
