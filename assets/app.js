@@ -1862,77 +1862,193 @@
     })();
 
     // 3) Dane środowiskowe – T / RH / p
+    // 3) Dane srodowiskowe – T / RH / p vs wysokosc
+
     (function () {
+
       const id = 'chart-env';
+
       const chart = ensureChart(id, () => ({
-        type: 'line',
+
+        type: 'scatter',
+
         data: {
+
           datasets: [
+
             {
-              label: 'Temperatura [°C]',
-              yAxisID: 'yTemp',
+
+              label: 'Temperatura [C]',
+
+              xAxisID: 'xTemp',
+
+              yAxisID: 'y',
+
               data: [],
+
+              showLine: true,
+
               borderWidth: 1.2,
-              pointRadius: 0
+
+              pointRadius: 2
+
             },
+
             {
-              label: 'Wilgotność [%]',
-              yAxisID: 'yRH',
+
+              label: 'Wilgotnosc [%]',
+
+              xAxisID: 'xRH',
+
+              yAxisID: 'y',
+
               data: [],
+
+              showLine: true,
+
               borderWidth: 1.2,
-              pointRadius: 0
+
+              pointRadius: 2
+
             },
+
             {
-              label: 'Ciśnienie [hPa]',
-              yAxisID: 'yP',
+
+              label: 'Cisnienie [hPa]',
+
+              xAxisID: 'xP',
+
+              yAxisID: 'y',
+
               data: [],
+
+              showLine: true,
+
               borderWidth: 1.2,
-              pointRadius: 0
+
+              pointRadius: 2
+
             }
+
           ]
+
         },
+
         options: {
+
           responsive: true,
+
           maintainAspectRatio: false,
+
           animation: false,
+
           parsing: false,
+
           scales: {
-            x: timeScaleOptions('Czas'),
-            yTemp: commonY('Temperatura [°C]'),
-            yRH: { ...commonY('Wilgotność [%]'), position: 'right' },
-            yP: { ...commonY('Ciśnienie [hPa]'), position: 'right' }
-          },
-          plugins: {
-            tooltip: tooltipWithAltitude(),
-            legend: { labels: { color: '#e6ebff' } },
-            altitudeTopAxis: {
-              enabled: true,
-              datasetIndex: 0,
-              yOffsetPx: 8
+
+            xTemp: {
+
+              type: 'linear',
+
+              position: 'bottom',
+
+              title: { display: true, text: 'Temperatura [C]', color: '#e6ebff' },
+
+              grid: { color: 'rgba(134,144,176,.35)' },
+
+              ticks: { color: '#e6ebff' }
+
+            },
+
+            xRH: {
+
+              type: 'linear',
+
+              position: 'top',
+
+              title: { display: true, text: 'Wilgotnosc [%]', color: '#e6ebff' },
+
+              grid: { display: false },
+
+              ticks: { color: '#e6ebff' }
+
+            },
+
+            xP: {
+
+              type: 'linear',
+
+              position: 'top',
+
+              offset: true,
+
+              title: { display: true, text: 'Cisnienie [hPa]', color: '#e6ebff' },
+
+              grid: { display: false },
+
+              ticks: { color: '#e6ebff' }
+
+            },
+
+            y: {
+
+              type: 'linear',
+
+              title: { display: true, text: 'Wysokosc [m]', color: '#e6ebff' },
+
+              grid: { color: 'rgba(134,144,176,.35)' },
+
+              ticks: { color: '#e6ebff' }
+
             }
+
+          },
+
+          plugins: {
+
+            tooltip: tooltipWithAltitude(),
+
+            legend: { labels: { color: '#e6ebff' } }
+
           }
-        },
-        plugins: [altitudeTopAxisPlugin]
+
+        }
+
       }));
+
       if (!chart) return;
 
+
       const tempData = hist
-        .filter(h => Number.isFinite(h.temp))
-        .map(h => ({ x: h.time.getTime(), y: h.temp, alt: h.alt }));
+
+        .filter(h => Number.isFinite(h.temp) && Number.isFinite(h.alt))
+
+        .map(h => ({ x: h.temp, y: h.alt, alt: h.alt }));
+
+
       const rhData = hist
-        .filter(h => Number.isFinite(h.humidity))
-        .map(h => ({ x: h.time.getTime(), y: h.humidity, alt: h.alt }));
+
+        .filter(h => Number.isFinite(h.humidity) && Number.isFinite(h.alt))
+
+        .map(h => ({ x: h.humidity, y: h.alt, alt: h.alt }));
+
+
       const pData = hist
-        .filter(h => Number.isFinite(h.pressure))
-        .map(h => ({ x: h.time.getTime(), y: h.pressure, alt: h.alt }));
+
+        .filter(h => Number.isFinite(h.pressure) && Number.isFinite(h.alt))
+
+        .map(h => ({ x: h.pressure, y: h.alt, alt: h.alt }));
+
 
       chart.data.datasets[0].data = tempData;
-      chart.data.datasets[1].data = rhData;
-      chart.data.datasets[2].data = pData;
-      chart.update('none');
-    })();
 
-    // 4) Prędkość pozioma vs czas
+      chart.data.datasets[1].data = rhData;
+
+      chart.data.datasets[2].data = pData;
+
+      chart.update('none');
+
+    })();// 4) Prędkość pozioma vs czas
     (function () {
       const id = 'chart-hvel';
       const chart = ensureChart(id, () => ({
