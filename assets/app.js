@@ -1631,54 +1631,201 @@
 
     renderMiniMap(s, hist);
 
-    // 1) Temperatura vs czas
+    // 1) Temperatura vs wysokosc
+
+
     (function () {
+
+
       const id = 'chart-volt-temp';
+
+
       const chart = ensureChart(id, () => ({
-        type: 'line',
+
+
+        type: 'scatter',
+
+
         data: {
+
+
           datasets: [
+
+
             {
-              label: 'Temperatura [°C]',
+
+
+              label: 'Temperatura [C] vs wysokosc [m]',
+
+
               data: [],
-              yAxisID: 'yTemp',
+
+
+              showLine: true,
+
+
               borderWidth: 1.5,
-              pointRadius: 0
+
+
+              pointRadius: 2
+
+
             }
+
+
           ]
+
+
         },
+
+
         options: {
+
+
           responsive: true,
+
+
           maintainAspectRatio: false,
+
+
           animation: false,
+
+
           parsing: false,
+
+
           scales: {
-            x: timeScaleOptions('Czas'),
-            yTemp: commonY('Temperatura [°C]')
-          },
-          plugins: {
-            tooltip: tooltipWithAltitude(),
-            legend: { labels: { color: '#e6ebff' } },
-            altitudeTopAxis: {
-              enabled: true,
-              datasetIndex: 0,
-              yOffsetPx: 8
+
+
+            x: {
+
+
+              type: 'linear',
+
+
+              title: { display: true, text: 'Temperatura [C]', color: '#e6ebff' },
+
+
+              grid: { color: 'rgba(134,144,176,.35)' },
+
+
+              ticks: { color: '#e6ebff' }
+
+
+            },
+
+
+            y: {
+
+
+              type: 'linear',
+
+
+              title: { display: true, text: 'Wysokosc [m]', color: '#e6ebff' },
+
+
+              grid: { color: 'rgba(134,144,176,.35)' },
+
+
+              ticks: { color: '#e6ebff' }
+
+
             }
+
+
+          },
+
+
+          plugins: {
+
+
+            tooltip: {
+
+
+              callbacks: {
+
+
+                label(ctx) {
+
+
+                  const p = ctx.raw || {};
+
+
+                  const T = Number.isFinite(p.x) ? p.x.toFixed(1) : '—';
+
+
+                  const z = Number.isFinite(p.y) ? p.y.toFixed(0) : '—';
+
+
+                  const t = p.t ? new Date(p.t).toLocaleTimeString() : null;
+
+
+                  return t
+
+
+                    ? `T: ${T} C, z: ${z} m, t: ${t}`
+
+
+                    : `T: ${T} C, z: ${z} m`;
+
+
+                }
+
+
+              }
+
+
+            },
+
+
+            legend: { labels: { color: '#e6ebff' } }
+
+
           }
-        },
-        plugins: [altitudeTopAxisPlugin]
+
+
+        }
+
+
       }));
+
+
       if (!chart) return;
 
-      const tempData = hist
-        .filter(h => Number.isFinite(h.temp))
-        .map(h => ({ x: h.time.getTime(), y: h.temp, alt: h.alt }));
 
-      chart.data.datasets[0].data = tempData;
+
+      const data = hist
+
+
+        .filter(h => Number.isFinite(h.temp) && Number.isFinite(h.alt))
+
+
+        .map(h => ({
+
+
+          x: h.temp,
+
+
+          y: h.alt,
+
+
+          t: h.time.getTime()
+
+
+        }))
+
+
+        .sort((a, b) => a.y - b.y);
+
+
+
+      chart.data.datasets[0].data = data;
+
+
       chart.update('none');
-    })();
 
-    // 2) GNSS – placeholder
+
+    })();// 2) GNSS – placeholder
     (function () {
       const id = 'chart-gnss';
       const chart = ensureChart(id, () => ({
