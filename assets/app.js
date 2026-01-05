@@ -2374,6 +2374,7 @@
     updateStabilityBox(s);
     renderCapeCinCard(s);
     renderSkewT(s);
+    renderVisibilityCard(s);
   }
 
   // ======= Wskaźnik stabilności =======
@@ -2536,7 +2537,212 @@
     `;
   }
 
-  // ======= Raport PDF =======
+  
+  // ======= Wskaznik widzialnosci (szacunkowy, na podstawie warstwy przyziemnej) =======
+  // Uwaga: to NIE jest oficjalny METAR/TAF. To heurystyka z danych radiosondy (T/RH).
+  // Wynik traktuj jako orientacyjny.
+  function estimateVisibilityKmFromTRH(Tc, RH) {
+    if (!Number.isFinite(Tc) || !Number.isFinite(RH)) return { km: null, cls: 'brak danych', note: 'Missing T/RH' };
+
+    // punkt rosy i "dewpoint depression"
+    const Td = dewPoint(Tc, RH);
+    const d = (Number.isFinite(Td)) ? (Tc - Td) : null;
+
+    // proste progi: im wyzsze RH i mniejsza roznica T-Td, tym mniejsza widzialnosc (mgla / zamglenie)
+    // Celowo ograniczamy zakres do 0.2 .. 50 km
+    let km = 30;
+
+    const rh = clamp(RH, 0, 100);
+    const dd = Number.isFinite(d) ? clamp(d, 0, 20) : null;
+
+    if (rh >= 99 || (dd != null && dd <= 0.5)) {
+      km = 0.5; // bardzo gesta mgla
+    } else if (rh >= 97 || (dd != null && dd <= 1.0)) {
+      km = 1.0;
+    } else if (rh >= 95 || (dd != null && dd <= 2.0)) {
+      km = 2.0 + (dd != null ? (dd - 1.0) * 2.0 : 0); // ok. 2..4 km
+    } else if (rh >= 90 || (dd != null && dd <= 4.0)) {
+      km = 5.0 + (dd != null ? (dd - 2.0) * 2.5 : 0); // ok. 5..10+ km
+    } else if (rh >= 80) {
+      km = 12.0 + (dd != null ? dd * 2.0 : 0); // ok. 12..50 km
+    } else {
+      km = 20.0 + (dd != null ? dd * 2.0 : 10.0);
+    }
+
+    km = clamp(km, 0.2, 50);
+
+    let cls = 'dobra';
+    if (km < 1) cls = 'bardzo slaba';
+    else if (km < 5) cls = 'slaba';
+    else if (km < 10) cls = 'umiarkowana';
+    else if (km < 20) cls = 'dobra';
+    else cls = 'bardzo dobra';
+
+    return { km, cls, note: (Number.isFinite(Td) ? `Td=${Td.toFixed(1)}C, dT=${(Tc - Td).toFixed(1)}C` : 'Td unavailable') };
+  }
+
+  function nmFromKm(km) {
+    return Number.isFinite(km) ? (km / 1.852) : null;
+  }
+
+  // wybiera "warstwe przyziemna" jako punkty w zakresie [baseAlt .. baseAlt+rangeM]
+  function pickNearSurfaceLayer(history, baseAlt, rangeM) {
+    const out = [];
+    if (!Array.isArray(history) || !history.length) return out;
+    for (const h of history) {
+      if (!h) continue;
+      if (!Number.isFinite(h.alt)) continue;
+      if (h.alt >= baseAlt && h.alt <= baseAlt + rangeM) out.push(h);
+    }
+    return out;
+  }
+
+  function summarizeLayer(layer) {
+    // srednie z T/RH/p
+    let nT = 0, nRH = 0, nP = 0;
+    let sumT = 0, sumRH = 0, sumP = 0;
+
+    for (const h of layer) {
+      if (Number.isFinite(h.temp)) { sumT += h.temp; nT++; }
+      if (Number.isFinite(h.humidity)) { sumRH += h.humidity; nRH++; }
+      if (Number.isFinite(h.pressure)) { sumP += h.pressure; nP++; }
+    }
+
+    const T = nT ? (sumT / nT) : null;
+    const RH = nRH ? (sumRH / nRH) : null;
+    const P = nP ? (sumP / nP) : null;
+
+    return { T, RH, P, n: layer.length };
+  }
+
+  function renderVisibilityCard(s) {
+    const chartsView = document.getElementById('view-charts');
+    if (!chartsView) return;
+
+    let card = document.getElementById('visibility-card');
+    if (!card) {
+      const grid = chartsView.querySelector('.charts-scroll') || chartsView;
+      card = document.createElement('div');
+      card.id = 'visibility-card';
+      card.className = 'card wide visibility-card';
+      grid.appendChild(card);
+    }
+
+    if (!s || !Array.isArray(s.history) || !s.history.length) {
+      card.innerHTML = `
+        <div class="card-head"><span>Widzialnosc (szacunek)</span></div>
+        <div class="card-body">
+          <p>Brak danych radiosondy.</p>
+        </div>
+      `;
+      return;
+    }
+
+    const ordered = s.history.slice().sort((a, b) => a.time - b.time);
+
+    // baza startu: minimalna wysokosc z pierwszych 10 punktow (zwykle okolice gruntu)
+    const firstN = ordered.slice(0, Math.min(10, ordered.length));
+    let launchBase = Infinity;
+    for (const h of firstN) {
+      if (Number.isFinite(h.alt)) launchBase = Math.min(launchBase, h.alt);
+    }
+    if (!Number.isFinite(launchBase)) launchBase = ordered[0].alt;
+
+    // baza ladowania: minimalna wysokosc z ostatnich 20 punktow
+    const lastN = ordered.slice(Math.max(0, ordered.length - 20));
+    let landBase = Infinity;
+    for (const h of lastN) {
+      if (Number.isFinite(h.alt)) landBase = Math.min(landBase, h.alt);
+    }
+
+    // czy jest faza opadania? (wtedy pokazujemy "landing")
+    let maxAlt = -Infinity;
+    let lastAlt = ordered[ordered.length - 1].alt;
+    for (const h of ordered) {
+      if (Number.isFinite(h.alt)) maxAlt = Math.max(maxAlt, h.alt);
+    }
+    const hasDescent = Number.isFinite(maxAlt) && Number.isFinite(lastAlt) && (lastAlt < maxAlt - 10);
+
+    const LAYER_M = 100; // warstwa przyziemna 0..100 m nad baza
+    const layerLaunch = pickNearSurfaceLayer(ordered, launchBase, LAYER_M);
+    const sLaunch = summarizeLayer(layerLaunch);
+    const estLaunch = estimateVisibilityKmFromTRH(sLaunch.T, sLaunch.RH);
+
+    let estLand = { km: null, cls: 'brak danych', note: '' };
+    let sLand = { T: null, RH: null, P: null, n: 0 };
+    if (hasDescent && Number.isFinite(landBase)) {
+      const layerLand = pickNearSurfaceLayer(lastN, landBase, LAYER_M);
+      sLand = summarizeLayer(layerLand);
+      estLand = estimateVisibilityKmFromTRH(sLand.T, sLand.RH);
+    }
+
+    const nmLaunch = nmFromKm(estLaunch.km);
+    const nmLand = nmFromKm(estLand.km);
+
+    const qLaunch = clamp((sLaunch.n || 0) / 6, 0, 1);
+    const qLand = hasDescent ? clamp((sLand.n || 0) / 6, 0, 1) : 0;
+
+    const visTag = (nm) => Number.isFinite(nm) ? `${nm.toFixed(1)} NM` : '—';
+    const tTag = (v) => Number.isFinite(v) ? `${v.toFixed(1)} C` : '—';
+    const rhTag = (v) => Number.isFinite(v) ? `${v.toFixed(0)} %` : '—';
+    const pTag = (v) => Number.isFinite(v) ? `${v.toFixed(0)} hPa` : '—';
+
+    const barPct = Number.isFinite(nmLaunch) ? clamp((nmLaunch / (50 / 1.852)) * 100, 0, 100) : 0;
+
+    // klasa do stylowania (opcjonalnie w CSS)
+    let stateClass = 'vis--na';
+    if (Number.isFinite(estLaunch.km)) {
+      if (estLaunch.km < 1) stateClass = 'vis--very-bad';
+      else if (estLaunch.km < 5) stateClass = 'vis--bad';
+      else if (estLaunch.km < 10) stateClass = 'vis--ok';
+      else if (estLaunch.km < 20) stateClass = 'vis--good';
+      else stateClass = 'vis--very-good';
+    }
+
+    card.innerHTML = `
+      <div class="card-head">
+        <span>Widzialnosc (szacunek, warstwa 0-${LAYER_M} m)</span>
+      </div>
+      <div class="card-body ${stateClass}">
+        <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">
+          <div style="min-width:260px;flex:1">
+            <div style="font-weight:700;font-size:18px;line-height:1.2">
+              Start: ${visTag(nmLaunch)} <span style="font-weight:500;color:#8a94b0">(${estLaunch.cls})</span>
+            </div>
+            <div style="margin-top:6px;font-size:12px;color:#8a94b0">
+              T=${tTag(sLaunch.T)}, RH=${rhTag(sLaunch.RH)}, p=${pTag(sLaunch.P)} <span style="opacity:.8">| ${estLaunch.note || ''}</span>
+            </div>
+            <div style="margin-top:10px">
+              <div class="stability-bar" style="height:10px">
+                <div class="stability-bar-inner" style="width:${barPct}%;height:10px"></div>
+              </div>
+              <div style="margin-top:6px;font-size:12px;color:#8a94b0">
+                Jakosc danych (start): ${(qLaunch*100).toFixed(0)}% (punkty w warstwie: ${sLaunch.n || 0})
+              </div>
+            </div>
+          </div>
+
+          <div style="min-width:260px;flex:1">
+            <div style="font-weight:700;font-size:18px;line-height:1.2">
+              Ladowanie: ${hasDescent ? visTag(nmLand) : '—'} <span style="font-weight:500;color:#8a94b0">(${hasDescent ? estLand.cls : 'brak opadania'})</span>
+            </div>
+            <div style="margin-top:6px;font-size:12px;color:#8a94b0">
+              T=${tTag(sLand.T)}, RH=${rhTag(sLand.RH)}, p=${pTag(sLand.P)} <span style="opacity:.8">${hasDescent ? ('| ' + (estLand.note || '')) : ''}</span>
+            </div>
+            <div style="margin-top:10px;font-size:12px;color:#8a94b0">
+              Jakosc danych (ladowanie): ${hasDescent ? (qLand*100).toFixed(0) + '%' : '—'} ${hasDescent ? `(punkty w warstwie: ${sLand.n || 0})` : ''}
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:10px;font-size:12px;color:#8a94b0">
+          Uwaga: to heurystyka z T/RH (punkt rosy i roznica T-Td). Nie uwzglednia opadow, aerozoli, zachmurzenia ani mgly adwekcyjnej.
+        </div>
+      </div>
+    `;
+  }
+
+// ======= Raport PDF =======
   async function generatePdfReport() {
     const jsPdfCtor =
       (window.jspdf && window.jspdf.jsPDF) ||
