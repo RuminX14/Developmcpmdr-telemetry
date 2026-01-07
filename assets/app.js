@@ -2448,7 +2448,14 @@
 
     let card = document.getElementById('cape-cin-card');
     if (!card) {
-      const grid = chartsView.querySelector('.charts-scroll') || chartsView;
+        // IMPORTANT: mount as a separate card in the main charts grid (NOT inside the Skew-T card),
+  // otherwise it can overlap Skew-T canvas/notes depending on layout/CSS.
+  const skewtCanvas = document.getElementById('chart-skewt');
+  const skewtCard = skewtCanvas ? skewtCanvas.closest('.card') : null;
+
+  const grid = (skewtCard && skewtCard.parentElement)
+    ? skewtCard.parentElement
+    : (chartsView.querySelector('.charts-scroll') || chartsView);
       card = document.createElement('div');
       card.id = 'cape-cin-card';
       card.className = 'card wide cape-cin-card';
