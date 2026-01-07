@@ -2619,9 +2619,11 @@
     const chartsView = document.getElementById('view-charts');
     if (!chartsView) return;
 
+    // Zawsze doklejaj karte na koniec listy wykresow (zeby nie zaslaniala innych elementow).
+    const grid = chartsView.querySelector('.charts-scroll') || chartsView;
+
     let card = document.getElementById('visibility-card');
     if (!card) {
-      const grid = chartsView.querySelector('.charts-scroll') || chartsView;
       card = document.createElement('div');
       card.id = 'visibility-card';
       card.className = 'card wide visibility-card';
@@ -2635,6 +2637,7 @@
           <p>Brak danych radiosondy.</p>
         </div>
       `;
+      grid.appendChild(card);
       return;
     }
 
@@ -2735,11 +2738,11 @@
           </div>
         </div>
 
-        <div style="margin-top:10px;font-size:12px;color:#8a94b0">
-          Uwaga: to heurystyka z T/RH (punkt rosy i roznica T-Td). Nie uwzglednia opadow, aerozoli, zachmurzenia ani mgly adwekcyjnej.
-        </div>
       </div>
     `;
+
+    // jesli karta istniala w DOM, appendChild przeniesie ja na koniec kontenera
+    grid.appendChild(card);
   }
 
 // ======= Raport PDF =======
