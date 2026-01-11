@@ -2605,21 +2605,38 @@
   }
 
   function summarizeLayer(layer) {
-    // srednie z T/RH/p
-    let nT = 0, nRH = 0, nP = 0;
-    let sumT = 0, sumRH = 0, sumP = 0;
+    // srednie z T/RH/p + zakres wysokosci, z jakiej wzieto probke
+    let sumT = 0, nT = 0;
+    let sumRH = 0, nRH = 0;
+    let sumP = 0, nP = 0;
+
+    let zMin = Infinity;
+    let zMax = -Infinity;
+    let zSum = 0;
+    let zCount = 0;
 
     for (const h of layer) {
       if (Number.isFinite(h.temp)) { sumT += h.temp; nT++; }
       if (Number.isFinite(h.humidity)) { sumRH += h.humidity; nRH++; }
       if (Number.isFinite(h.pressure)) { sumP += h.pressure; nP++; }
+
+      if (Number.isFinite(h.alt)) {
+        zMin = Math.min(zMin, h.alt);
+        zMax = Math.max(zMax, h.alt);
+        zSum += h.alt;
+        zCount++;
+      }
     }
 
     const T = nT ? (sumT / nT) : null;
     const RH = nRH ? (sumRH / nRH) : null;
     const P = nP ? (sumP / nP) : null;
 
-    return { T, RH, P, n: layer.length };
+    const zAvg = zCount ? (zSum / zCount) : null;
+    if (!Number.isFinite(zMin)) zMin = null;
+    if (!Number.isFinite(zMax)) zMax = null;
+
+    return { T, RH, P, n: layer.length, zMin, zMax, zAvg };
   }
 
   function renderVisibilityCard(s) {
@@ -2696,6 +2713,14 @@
     const tTag = (v) => Number.isFinite(v) ? `${v.toFixed(1)} C` : '—';
     const rhTag = (v) => Number.isFinite(v) ? `${v.toFixed(0)} %` : '—';
     const pTag = (v) => Number.isFinite(v) ? `${v.toFixed(0)} hPa` : '—';
+    const zTag = (a, b, avg) => {
+      const okA = Number.isFinite(a);
+      const okB = Number.isFinite(b);
+      const okM = Number.isFinite(avg);
+      if (okA && okB) return `z=${a.toFixed(0)}-${b.toFixed(0)} m` + (okM ? ` (sr ${avg.toFixed(0)} m)` : '');
+      if (okM) return `z~${avg.toFixed(0)} m`;
+      return 'z=—';
+    };
 
     const barPct = Number.isFinite(nmLaunch) ? clamp((nmLaunch / (50 / 1.852)) * 100, 0, 100) : 0;
 
@@ -2720,7 +2745,7 @@
               Start: ${visTag(nmLaunch)} <span style="font-weight:500;color:#8a94b0">(${estLaunch.cls})</span>
             </div>
             <div style="margin-top:6px;font-size:12px;color:#8a94b0">
-              T=${tTag(sLaunch.T)}, RH=${rhTag(sLaunch.RH)}, p=${pTag(sLaunch.P)} <span style="opacity:.8">| ${estLaunch.note || ''}</span>
+              T=${tTag(sLaunch.T)}, RH=${rhTag(sLaunch.RH)}, p=${pTag(sLaunch.P)}, ${zTag(sLaunch.zMin, sLaunch.zMax, sLaunch.zAvg)} <span style="opacity:.8">| ${estLaunch.note || ''}</span>
             </div>
             <div style="margin-top:10px">
               <div class="stability-bar" style="height:10px">
@@ -2737,7 +2762,7 @@
               Ladowanie: ${hasDescent ? visTag(nmLand) : '—'} <span style="font-weight:500;color:#8a94b0">(${hasDescent ? estLand.cls : 'brak opadania'})</span>
             </div>
             <div style="margin-top:6px;font-size:12px;color:#8a94b0">
-              T=${tTag(sLand.T)}, RH=${rhTag(sLand.RH)}, p=${pTag(sLand.P)} <span style="opacity:.8">${hasDescent ? ('| ' + (estLand.note || '')) : ''}</span>
+              T=${tTag(sLand.T)}, RH=${rhTag(sLand.RH)}, p=${pTag(sLand.P)}, ${zTag(sLand.zMin, sLand.zMax, sLand.zAvg)} <span style="opacity:.8">${hasDescent ? ('| ' + (estLand.note || '')) : ''}</span>
             </div>
             <div style="margin-top:10px;font-size:12px;color:#8a94b0">
               Jakosc danych (ladowanie): ${hasDescent ? (qLand*100).toFixed(0) + '%' : '—'} ${hasDescent ? `(punkty w warstwie: ${sLand.n || 0})` : ''}
