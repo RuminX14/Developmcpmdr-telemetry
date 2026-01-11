@@ -86,6 +86,20 @@
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
   const fmt = (v, d = 0) => Number.isFinite(v) ? v.toFixed(d) : '—';
 
+
+  function getChartsContainer() {
+    const chartsView = document.getElementById('view-charts');
+    if (!chartsView) return null;
+
+    return (
+      chartsView.querySelector('.charts-scroll') ||
+      chartsView.querySelector('.charts-grid') ||
+      chartsView.querySelector('.charts') ||
+      document.getElementById('chart-env')?.closest('.card')?.parentElement ||
+      chartsView
+    );
+  }
+
   const pickFirstFinite = (...vals) => {
     for (const v of vals) {
       if (Number.isFinite(v)) return v;
@@ -2447,20 +2461,15 @@
     if (!chartsView) return;
 
     let card = document.getElementById('cape-cin-card');
-    if (!card) {
-        // IMPORTANT: mount as a separate card in the main charts grid (NOT inside the Skew-T card),
-  // otherwise it can overlap Skew-T canvas/notes depending on layout/CSS.
-  const skewtCanvas = document.getElementById('chart-skewt');
-  const skewtCard = skewtCanvas ? skewtCanvas.closest('.card') : null;
+    const grid = getChartsContainer();
+    if (!grid) return;
 
-  const grid = (skewtCard && skewtCard.parentElement)
-    ? skewtCard.parentElement
-    : (chartsView.querySelector('.charts-scroll') || chartsView);
+    if (!card) {
       card = document.createElement('div');
       card.id = 'cape-cin-card';
       card.className = 'card wide cape-cin-card';
-      grid.appendChild(card);
     }
+    if (card.parentElement !== grid) grid.appendChild(card);
 
     if (!s) {
       card.innerHTML = `
@@ -2657,15 +2666,16 @@
     }
 
     // Doklej karte na koniec listy wykresow.
-    const grid = chartsView.querySelector('.charts-scroll') || chartsView;
+    const grid = getChartsContainer();
+    if (!grid) return;
 
     let card = document.getElementById('visibility-card');
     if (!card) {
       card = document.createElement('div');
       card.id = 'visibility-card';
       card.className = 'card wide visibility-card';
-      grid.appendChild(card);
     }
+    if (card.parentElement !== grid) grid.appendChild(card);
 
     if (!s || !Array.isArray(s.history) || !s.history.length) {
       card.innerHTML = `
