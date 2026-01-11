@@ -2659,23 +2659,45 @@
       st.id = 'visibility-style-fix';
       st.textContent = `
         /* widzialnosc: ma nie nakladac sie na zadne wykresy */
-        .visibility-card{position:static !important; inset:auto !important; top:auto !important; right:auto !important; bottom:auto !important; left:auto !important;}
-        .visibility-card{margin-top:32px !important; z-index:0 !important;}
+        #visibility-card.visibility-card,
+        .visibility-card{
+          position: static !important;
+          inset: auto !important;
+          top: auto !important;
+          right: auto !important;
+          bottom: auto !important;
+          left: auto !important;
+          transform: none !important;
+          z-index: 0 !important;
+          margin-top: 32px !important;
+        }
       `;
       document.head.appendChild(st);
     }
 
-    // Doklej karte na koniec listy wykresow.
-    const grid = getChartsContainer();
-    if (!grid) return;
+    // Wstaw karte WIDZIALNOSC w normalnym flow (bez overlay).
+// Najpewniej: bezposrednio PO karcie Skew-T.
+const skewCanvas = document.getElementById('chart-skewt');
+const skewCard = skewCanvas ? skewCanvas.closest('.card') : null;
+const container = (skewCard && skewCard.parentElement) ? skewCard.parentElement : getChartsContainer();
+if (!container) return;
 
-    let card = document.getElementById('visibility-card');
-    if (!card) {
-      card = document.createElement('div');
-      card.id = 'visibility-card';
-      card.className = 'card wide visibility-card';
-    }
-    if (card.parentElement !== grid) grid.appendChild(card);
+let card = document.getElementById('visibility-card');
+if (!card) {
+  card = document.createElement('div');
+  card.id = 'visibility-card';
+  card.className = 'card wide visibility-card';
+} else {
+  card.classList.add('visibility-card');
+}
+
+if (skewCard && skewCard.parentElement === container) {
+  const next = skewCard.nextSibling;
+  if (next) container.insertBefore(card, next);
+  else container.appendChild(card);
+} else {
+  container.appendChild(card);
+}
 
     if (!s || !Array.isArray(s.history) || !s.history.length) {
       card.innerHTML = `
