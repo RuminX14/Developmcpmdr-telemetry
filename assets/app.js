@@ -2643,7 +2643,20 @@
     const chartsView = document.getElementById('view-charts');
     if (!chartsView) return;
 
-    // Zawsze doklejaj karte na koniec listy wykresow (zeby nie zaslaniala innych elementow).
+    // Fix (UI): karta widzialnosci ma byc zwyklym elementem przeplywu (bez sticky/absolute),
+    // bo inaczej moze zaslaniac wykresy (np. Skew-T).
+    if (!document.getElementById('visibility-style-fix')) {
+      const st = document.createElement('style');
+      st.id = 'visibility-style-fix';
+      st.textContent = `
+        /* widzialnosc: ma nie nakladac sie na zadne wykresy */
+        .visibility-card{position:static !important; inset:auto !important; top:auto !important; right:auto !important; bottom:auto !important; left:auto !important;}
+        .visibility-card{margin-top:32px !important; z-index:0 !important;}
+      `;
+      document.head.appendChild(st);
+    }
+
+    // Doklej karte na koniec listy wykresow.
     const grid = chartsView.querySelector('.charts-scroll') || chartsView;
 
     let card = document.getElementById('visibility-card');
