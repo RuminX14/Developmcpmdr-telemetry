@@ -2658,10 +2658,21 @@
       const st = document.createElement('style');
       st.id = 'visibility-style-fix';
       st.textContent = `
-        /* widzialnosc: ma nie nakladac sie na zadne wykresy */
-        .visibility-card{position:static !important; top:auto !important; right:auto !important; bottom:auto !important; left:auto !important;}
-        .visibility-card{margin-top:32px !important; z-index:0 !important;}
-      `;
+      /* widzialnosc: karta ma byc w normalnym przeplywie (bez fixed/sticky/absolute) */
+      .visibility-card{
+        position: static !important;
+        inset: auto !important;
+        top: auto !important;
+        right: auto !important;
+        bottom: auto !important;
+        left: auto !important;
+        z-index: 0 !important;
+      }
+      /* Zostaw oddech na koncu listy wykresow */
+      #view-charts .charts-scroll{
+        padding-bottom: 28px !important;
+      }
+    `;
       document.head.appendChild(st);
     }
 
