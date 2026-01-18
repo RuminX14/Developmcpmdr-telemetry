@@ -2696,23 +2696,15 @@
     card.style.zIndex = 'auto';
     card.style.marginTop = '12px';
 
-    // wstaw zawsze ZA karta Skew-T (zeby niczego nie przyslaniac)
-    const skewCanvas = document.getElementById('chart-skewt');
-    const skewCard = skewCanvas ? skewCanvas.closest('.card') : null;
-    const targetParent = (skewCard && skewCard.parentNode) ? skewCard.parentNode : grid;
+    // Trzymaj wskaznik na koncu listy wykresow (tak jak CAPE/CIN).
+    // To blokuje "upchanie" wczesniej przez CSS (np. grid-auto-flow:dense).
+    card.style.gridColumn = '1 / -1';
+    card.style.gridRow = '9999';
+    card.style.order = '9999';
 
-    if (card.parentNode !== targetParent) {
-      targetParent.appendChild(card);
-    }
-
-    if (skewCard && skewCard.parentNode === targetParent) {
-      const next = skewCard.nextSibling;
-      if (next !== card) {
-        // przenies na pozycje tuz za Skew-T
-        if (next) targetParent.insertBefore(card, next);
-        else targetParent.appendChild(card);
-      }
-    }
+    // zawsze przestaw na sam koniec rodzica
+    if (card.parentNode !== grid) grid.appendChild(card);
+    else grid.appendChild(card);
 
     if (!s || !Array.isArray(s.history) || !s.history.length) {
       card.innerHTML = `
