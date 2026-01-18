@@ -2679,14 +2679,40 @@
     // Doklej karte na koniec listy wykresow.
     const grid = getChartsContainer();
     if (!grid) return;
-
     let card = document.getElementById('visibility-card');
     if (!card) {
       card = document.createElement('div');
       card.id = 'visibility-card';
       card.className = 'card wide visibility-card';
     }
-    if (card.parentElement !== grid) grid.appendChild(card);
+
+    // hard reset aby nigdy nie nachodzilo na inne karty (ani nie bylo sticky/fixed)
+    card.style.position = 'static';
+    card.style.inset = 'auto';
+    card.style.top = 'auto';
+    card.style.right = 'auto';
+    card.style.bottom = 'auto';
+    card.style.left = 'auto';
+    card.style.zIndex = 'auto';
+    card.style.marginTop = '12px';
+
+    // wstaw zawsze ZA karta Skew-T (zeby niczego nie przyslaniac)
+    const skewCanvas = document.getElementById('chart-skewt');
+    const skewCard = skewCanvas ? skewCanvas.closest('.card') : null;
+    const targetParent = (skewCard && skewCard.parentNode) ? skewCard.parentNode : grid;
+
+    if (card.parentNode !== targetParent) {
+      targetParent.appendChild(card);
+    }
+
+    if (skewCard && skewCard.parentNode === targetParent) {
+      const next = skewCard.nextSibling;
+      if (next !== card) {
+        // przenies na pozycje tuz za Skew-T
+        if (next) targetParent.insertBefore(card, next);
+        else targetParent.appendChild(card);
+      }
+    }
 
     if (!s || !Array.isArray(s.history) || !s.history.length) {
       card.innerHTML = `
@@ -2695,7 +2721,6 @@
           <p>Brak danych radiosondy.</p>
         </div>
       `;
-      grid.appendChild(card);
       return;
     }
 
