@@ -803,6 +803,7 @@
       s.marker.addTo(state.map);
     } else {
       s.marker.setLatLng([s.lat, s.lon]);
+    }
 
     if (!s.polyline) {
       s.polyline = L.polyline(
@@ -908,6 +909,7 @@
       btn.textContent = `${s.type ? (s.type + ' ') : ''}${s.id}`;
       btn.addEventListener('click', () => setActiveSonde(s.id, true));
       wrap.appendChild(btn);
+    }
 
     if (!state.activeId && list.length) {
       setActiveSonde(list[0].id, false);
@@ -1595,6 +1597,7 @@
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OSM contributors'
       }).addTo(state.miniMap);
+    }
 
     if (!s || !hist.length) {
       state.miniMap.setView([RX.lat, RX.lon], 4);
@@ -2403,6 +2406,7 @@
       box.className = 'stability-box';
       const body = card.querySelector('.card-body') || card;
       body.appendChild(box);
+    }
 
     if (!s || !Number.isFinite(s.stabilityIndex)) {
       box.className = 'stability-box';
@@ -2692,12 +2696,22 @@
     card.style.zIndex = 'auto';
     card.style.marginTop = '12px';
 
-    // zawsze na samym dole listy wykresow (jak karta CAPE/CIN)
-    // (nie przyslania zadnego elementu, bo jest zwyklym elementem w przeplywie)
-    if (card.parentNode !== grid) {
-      grid.appendChild(card);
-    } else if (grid.lastElementChild !== card) {
-      grid.appendChild(card);
+    // wstaw zawsze ZA karta Skew-T (zeby niczego nie przyslaniac)
+    const skewCanvas = document.getElementById('chart-skewt');
+    const skewCard = skewCanvas ? skewCanvas.closest('.card') : null;
+    const targetParent = (skewCard && skewCard.parentNode) ? skewCard.parentNode : grid;
+
+    if (card.parentNode !== targetParent) {
+      targetParent.appendChild(card);
+    }
+
+    if (skewCard && skewCard.parentNode === targetParent) {
+      const next = skewCard.nextSibling;
+      if (next !== card) {
+        // przenies na pozycje tuz za Skew-T
+        if (next) targetParent.insertBefore(card, next);
+        else targetParent.appendChild(card);
+      }
     }
 
     if (!s || !Array.isArray(s.history) || !s.history.length) {
@@ -2818,29 +2832,8 @@
       </div>
     `;
 
-
-    // Umieszczenie karty NA ABSOLUTNYM DOLE zakladki wykresow.
-    // W tym projekcie pod wykresem Skew-T bywa jeszcze opis (Konwekcja/Wiatr/Warstwa morska)
-    // umieszczony poza .charts-scroll. Sama operacja grid.appendChild(card) wstawia wtedy karte
-    // NAD tym opisem. Zeby karta byla zawsze na samym dole, najpierw probujemy wpiac ja ZA opisem.
-    const footer = (() => {
-      const all = Array.from(chartsView.querySelectorAll('*'));
-      for (const el of all) {
-        if (!el || el === grid || el === card) continue;
-        const txt = (el.textContent || '').trim();
-        if (txt && txt.includes('Konwekcja:') && txt.includes('Wiatr:') && txt.includes('Warstwa')) {
-          return el;
-        }
-      }
-      return null;
-    })();
-
-    if (footer && footer.parentElement) {
-      footer.insertAdjacentElement('afterend', card);
-    } else {
-      // jesli karta istniala w DOM, appendChild przeniesie ja na koniec kontenera
-      grid.appendChild(card);
-    }
+    // jesli karta istniala w DOM, appendChild przeniesie ja na koniec kontenera
+    grid.appendChild(card);
   }
 
 // ======= Raport PDF =======
