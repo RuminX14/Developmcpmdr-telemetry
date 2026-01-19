@@ -90,14 +90,7 @@
   function getChartsContainer() {
     const chartsView = document.getElementById('view-charts');
     if (!chartsView) return null;
-
-    return (
-      chartsView.querySelector('.charts-scroll') ||
-      chartsView.querySelector('.charts-grid') ||
-      chartsView.querySelector('.charts') ||
-      document.getElementById('chart-env')?.closest('.card')?.parentElement ||
-      chartsView
-    );
+    return chartsView.querySelector('.charts-scroll') || chartsView;
   }
 
   const pickFirstFinite = (...vals) => {
@@ -2652,181 +2645,173 @@
     const chartsView = document.getElementById('view-charts');
     if (!chartsView) return;
 
-    // Fix (UI): karta widzialnosci ma byc zwyklym elementem przeplywu (bez sticky/absolute),
-    // bo inaczej moze zaslaniac wykresy (np. Skew-T).
-    if (!document.getElementById('visibility-style-fix')) {
-      const st = document.createElement('style');
-      st.id = 'visibility-style-fix';
-      st.textContent = `
-      /* widzialnosc: karta ma byc w normalnym przeplywie (bez fixed/sticky/absolute) */
-      .visibility-card{
-        position: static !important;
-        inset: auto !important;
-        top: auto !important;
-        right: auto !important;
-        bottom: auto !important;
-        left: auto !important;
-        z-index: 0 !important;
-      }
-      /* Zostaw oddech na koncu listy wykresow */
-      #view-charts .charts-scroll{
-        padding-bottom: 28px !important;
-      }
-    `;
-      document.head.appendChild(st);
-    }
+    // Same insertion pattern as CAPE/CIN: a normal card appended at the end of the charts list
+    const grid = chartsView.querySelector('.charts-scroll') || chartsView;
 
-    // Doklej karte na koniec listy wykresow.
-    const grid = getChartsContainer();
-    if (!grid) return;
     let card = document.getElementById('visibility-card');
     if (!card) {
       card = document.createElement('div');
       card.id = 'visibility-card';
       card.className = 'card wide visibility-card';
+      grid.appendChild(card);
+    } else {
+      // Move to the very end (appendChild moves existing element)
+      grid.appendChild(card);
     }
 
-    // hard reset aby nigdy nie nachodzilo na inne karty (ani nie bylo sticky/fixed)
-    card.style.position = 'static';
-    card.style.inset = 'auto';
-    card.style.top = 'auto';
-    card.style.right = 'auto';
-    card.style.bottom = 'auto';
-    card.style.left = 'auto';
-    card.style.zIndex = 'auto';
-    card.style.marginTop = '12px';
-
-    // Trzymaj wskaznik na koncu listy wykresow (tak jak CAPE/CIN).
-    // To blokuje "upchanie" wczesniej przez CSS (np. grid-auto-flow:dense).
-    card.style.gridColumn = '1 / -1';
-    card.style.gridRow = '9999';
-    card.style.order = '9999';
-
-    // zawsze przestaw na sam koniec rodzica
-    if (card.parentNode !== grid) grid.appendChild(card);
-    else grid.appendChild(card);
-
-    if (!s || !Array.isArray(s.history) || !s.history.length) {
+    // --- No data ---
+    if (!s || !Array.isArray(s.history) || s.history.length < 1) {
       card.innerHTML = `
-        <div class="card-head"><span>Widzialnosc (szacunek)</span></div>
+        <div class="card-head"><span>Widzialnosc (szacunek, warstwa 0-100 m)</span></div>
         <div class="card-body">
-          <p>Brak danych radiosondy.</p>
+          <div class="visibility-grid">
+            <div>
+              <div class="vis-title">Start: <span class="vis-value">—</span> <span class="vis-note">(brak danych)</span></div>
+              <div class="vis-meta">T=—, RH=—, p=—, z=— | Missing T/RH</div>
+              <div class="vis-quality">Jakosc danych (start): —</div>
+            </div>
+            <div>
+              <div class="vis-title">Ladowanie: <span class="vis-value">—</span> <span class="vis-note">(brak danych)</span></div>
+              <div class="vis-meta">T=—, RH=—, p=—, z=— | Missing T/RH</div>
+              <div class="vis-quality">Jakosc danych (ladowanie): —</div>
+            </div>
+          </div>
         </div>
       `;
       return;
     }
 
+    // ---- Compute visibility for launch and landing using 0-100 m layer ----
+    const layerTop = 100;
     const ordered = s.history.slice().sort((a, b) => a.time - b.time);
 
-    // baza startu: minimalna wysokosc z pierwszych 10 punktow (zwykle okolice gruntu)
-    const firstN = ordered.slice(0, Math.min(10, ordered.length));
-    let launchBase = Infinity;
-    for (const h of firstN) {
-      if (Number.isFinite(h.alt)) launchBase = Math.min(launchBase, h.alt);
-    }
-    if (!Number.isFinite(launchBase)) launchBase = ordered[0].alt;
+    const launch = ordered[0];
+    const landing = ordered[ordered.length - 1];
 
-    // baza ladowania: minimalna wysokosc z ostatnich 20 punktow
-    const lastN = ordered.slice(Math.max(0, ordered.length - 20));
-    let landBase = Infinity;
-    for (const h of lastN) {
-      if (Number.isFinite(h.alt)) landBase = Math.min(landBase, h.alt);
-    }
-
-    // czy jest faza opadania? (wtedy pokazujemy "landing")
-    let maxAlt = -Infinity;
-    let lastAlt = ordered[ordered.length - 1].alt;
-    for (const h of ordered) {
-      if (Number.isFinite(h.alt)) maxAlt = Math.max(maxAlt, h.alt);
-    }
-    const hasDescent = Number.isFinite(maxAlt) && Number.isFinite(lastAlt) && (lastAlt < maxAlt - 10);
-
-    const LAYER_M = 100; // warstwa przyziemna 0..100 m nad baza
-    const layerLaunch = pickNearSurfaceLayer(ordered, launchBase, LAYER_M);
-    const sLaunch = summarizeLayer(layerLaunch);
-    const estLaunch = estimateVisibilityKmFromTRH(sLaunch.T, sLaunch.RH);
-
-    let estLand = { km: null, cls: 'brak danych', note: '' };
-    let sLand = { T: null, RH: null, P: null, n: 0 };
-    if (hasDescent && Number.isFinite(landBase)) {
-      const layerLand = pickNearSurfaceLayer(lastN, landBase, LAYER_M);
-      sLand = summarizeLayer(layerLand);
-      estLand = estimateVisibilityKmFromTRH(sLand.T, sLand.RH);
+    function collectLayer(centerPoint) {
+      if (!centerPoint || !Number.isFinite(centerPoint.alt)) return { points: [], zMin: null, zMax: null, zMean: null };
+      const z0 = centerPoint.alt;
+      const zMin = z0;
+      const zMax = z0 + layerTop;
+      const pts = ordered.filter(h => Number.isFinite(h.alt) && h.alt >= zMin && h.alt <= zMax);
+      let sum=0; let n=0;
+      for (const p of pts) { if (Number.isFinite(p.alt)) { sum+=p.alt; n++; } }
+      const zMean = n ? sum/n : null;
+      return { points: pts, zMin, zMax, zMean };
     }
 
-    const nmLaunch = nmFromKm(estLaunch.km);
-    const nmLand = nmFromKm(estLand.km);
+    function bestTRHP(layerPts) {
+      // Use the latest point in layer that has at least T and RH
+      let best = null;
+      for (const h of layerPts) {
+        if (!Number.isFinite(h.temp) || !Number.isFinite(h.humidity)) continue;
+        best = h;
+      }
+      return best;
+    }
 
-    const qLaunch = clamp((sLaunch.n || 0) / 6, 0, 1);
-    const qLand = hasDescent ? clamp((sLand.n || 0) / 6, 0, 1) : 0;
+    function qualityPct(layerPts) {
+      if (!layerPts || !layerPts.length) return 0;
+      const withTRH = layerPts.filter(h => Number.isFinite(h.temp) && Number.isFinite(h.humidity)).length;
+      return Math.round(100 * (withTRH / layerPts.length));
+    }
 
-    const visTag = (nm) => Number.isFinite(nm) ? `${nm.toFixed(1)} NM` : '—';
-    const tTag = (v) => Number.isFinite(v) ? `${v.toFixed(1)} C` : '—';
-    const rhTag = (v) => Number.isFinite(v) ? `${v.toFixed(0)} %` : '—';
-    const pTag = (v) => Number.isFinite(v) ? `${v.toFixed(0)} hPa` : '—';
-    const zTag = (a, b, avg) => {
-      const okA = Number.isFinite(a);
-      const okB = Number.isFinite(b);
-      const okM = Number.isFinite(avg);
-      if (okA && okB) return `z=${a.toFixed(0)}-${b.toFixed(0)} m` + (okM ? ` (sr ${avg.toFixed(0)} m)` : '');
-      if (okM) return `z~${avg.toFixed(0)} m`;
-      return 'z=—';
-    };
+    function kmToNM(km) {
+      return km / 1.852;
+    }
 
-    const barPct = Number.isFinite(nmLaunch) ? clamp((nmLaunch / (50 / 1.852)) * 100, 0, 100) : 0;
+    function classifyNM(nm) {
+      if (!Number.isFinite(nm)) return { label: 'brak danych', cls: 'vis-bad' };
+      if (nm >= 10) return { label: 'bardzo dobra', cls: 'vis-verygood' };
+      if (nm >= 5)  return { label: 'dobra', cls: 'vis-good' };
+      if (nm >= 2)  return { label: 'umiarkowana', cls: 'vis-med' };
+      return { label: 'slaba', cls: 'vis-bad' };
+    }
 
-    // klasa do stylowania (opcjonalnie w CSS)
-    let stateClass = 'vis--na';
-    if (Number.isFinite(estLaunch.km)) {
-      if (estLaunch.km < 1) stateClass = 'vis--very-bad';
-      else if (estLaunch.km < 5) stateClass = 'vis--bad';
-      else if (estLaunch.km < 10) stateClass = 'vis--ok';
-      else if (estLaunch.km < 20) stateClass = 'vis--good';
-      else stateClass = 'vis--very-good';
+    function computeFor(center) {
+      const layer = collectLayer(center);
+      const trh = bestTRHP(layer.points);
+      const q = qualityPct(layer.points);
+
+      let km = null;
+      let meta = { T: null, RH: null, p: null, Td: null, dT: null };
+
+      if (trh) {
+        km = estimateVisibilityKmFromTRH(trh.temp, trh.humidity);
+        const Td = dewPoint(trh.temp, trh.humidity);
+        meta = {
+          T: trh.temp,
+          RH: trh.humidity,
+          p: trh.pressure,
+          Td: Td,
+          dT: (Number.isFinite(Td) ? (trh.temp - Td) : null)
+        };
+      }
+
+      const nm = Number.isFinite(km) ? kmToNM(km) : null;
+      const cls = classifyNM(nm);
+      return {
+        nm,
+        cls,
+        quality: q,
+        meta,
+        zMin: layer.zMin,
+        zMax: layer.zMax,
+        zMean: layer.zMean,
+        points: layer.points.length
+      };
+    }
+
+    const launchRes = computeFor(launch);
+    const landRes = computeFor(landing);
+
+    function fmtNum(v, d=1) {
+      return Number.isFinite(v) ? v.toFixed(d) : '—';
+    }
+
+    function lineMeta(r) {
+      const zStr = (Number.isFinite(r.zMin) && Number.isFinite(r.zMax))
+        ? `z=${r.zMin.toFixed(0)}-${r.zMax.toFixed(0)} m (sr ${Number.isFinite(r.zMean) ? r.zMean.toFixed(0) : '—'} m)`
+        : 'z=—';
+
+      const TdStr = Number.isFinite(r.meta.Td) ? r.meta.Td.toFixed(1) : '—';
+      const dTStr = Number.isFinite(r.meta.dT) ? r.meta.dT.toFixed(1) : '—';
+
+      return `T=${fmtNum(r.meta.T,1)} C, RH=${fmtNum(r.meta.RH,0)} %, p=${fmtNum(r.meta.p,0)} hPa, ${zStr} | Td=${TdStr} C, dT=${dTStr} C`;
+    }
+
+    function barHtml(r) {
+      const nm = r.nm;
+      const pct = Number.isFinite(nm) ? Math.max(0, Math.min(100, (nm / 20) * 100)) : 0;
+      return `
+        <div class="vis-bar">
+          <div class="vis-bar-inner ${r.cls.cls}" style="width:${pct}%"></div>
+        </div>
+      `;
     }
 
     card.innerHTML = `
-      <div class="card-head">
-        <span>Widzialnosc (szacunek, warstwa 0-${LAYER_M} m)</span>
-      </div>
-      <div class="card-body ${stateClass}">
-        <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">
-          <div style="min-width:260px;flex:1">
-            <div style="font-weight:700;font-size:18px;line-height:1.2">
-              Start: ${visTag(nmLaunch)} <span style="font-weight:500;color:#8a94b0">(${estLaunch.cls})</span>
-            </div>
-            <div style="margin-top:6px;font-size:12px;color:#8a94b0">
-              T=${tTag(sLaunch.T)}, RH=${rhTag(sLaunch.RH)}, p=${pTag(sLaunch.P)}, ${zTag(sLaunch.zMin, sLaunch.zMax, sLaunch.zAvg)} <span style="opacity:.8">| ${estLaunch.note || ''}</span>
-            </div>
-            <div style="margin-top:10px">
-              <div class="stability-bar" style="height:10px">
-                <div class="stability-bar-inner" style="width:${barPct}%;height:10px"></div>
-              </div>
-              <div style="margin-top:6px;font-size:12px;color:#8a94b0">
-                Jakosc danych (start): ${(qLaunch*100).toFixed(0)}% (punkty w warstwie: ${sLaunch.n || 0})
-              </div>
-            </div>
+      <div class="card-head"><span>Widzialnosc (szacunek, warstwa 0-100 m)</span></div>
+      <div class="card-body">
+        <div class="visibility-grid">
+          <div>
+            <div class="vis-title">Start: <span class="vis-value">${Number.isFinite(launchRes.nm) ? launchRes.nm.toFixed(1) + ' NM' : '—'}</span> <span class="vis-note">(${launchRes.cls.label})</span></div>
+            <div class="vis-meta">${lineMeta(launchRes)}</div>
+            ${barHtml(launchRes)}
+            <div class="vis-quality">Jakosc danych (start): ${launchRes.quality}% (punkty w warstwie: ${launchRes.points})</div>
           </div>
-
-          <div style="min-width:260px;flex:1">
-            <div style="font-weight:700;font-size:18px;line-height:1.2">
-              Ladowanie: ${hasDescent ? visTag(nmLand) : '—'} <span style="font-weight:500;color:#8a94b0">(${hasDescent ? estLand.cls : 'brak opadania'})</span>
-            </div>
-            <div style="margin-top:6px;font-size:12px;color:#8a94b0">
-              T=${tTag(sLand.T)}, RH=${rhTag(sLand.RH)}, p=${pTag(sLand.P)}, ${zTag(sLand.zMin, sLand.zMax, sLand.zAvg)} <span style="opacity:.8">${hasDescent ? ('| ' + (estLand.note || '')) : ''}</span>
-            </div>
-            <div style="margin-top:10px;font-size:12px;color:#8a94b0">
-              Jakosc danych (ladowanie): ${hasDescent ? (qLand*100).toFixed(0) + '%' : '—'} ${hasDescent ? `(punkty w warstwie: ${sLand.n || 0})` : ''}
-            </div>
+          <div>
+            <div class="vis-title">Ladowanie: <span class="vis-value">${Number.isFinite(landRes.nm) ? landRes.nm.toFixed(1) + ' NM' : '—'}</span> <span class="vis-note">(${landRes.cls.label})</span></div>
+            <div class="vis-meta">${lineMeta(landRes)}</div>
+            ${barHtml(landRes)}
+            <div class="vis-quality">Jakosc danych (ladowanie): ${landRes.quality}% (punkty w warstwie: ${landRes.points})</div>
           </div>
         </div>
-
       </div>
     `;
-
-    // jesli karta istniala w DOM, appendChild przeniesie ja na koniec kontenera
-    grid.appendChild(card);
   }
+
+
 
 // ======= Raport PDF =======
   async function generatePdfReport() {
