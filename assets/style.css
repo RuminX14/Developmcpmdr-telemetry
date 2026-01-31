@@ -423,6 +423,8 @@ body {
   height: 100%;
   overflow-y: auto;
   display: grid;
+  align-items: start;
+  align-content: start;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
   grid-auto-rows: minmax(260px, auto);
@@ -666,3 +668,11 @@ body {
 .skewt-legend{
   flex:0 0 auto;
 }
+
+
+/* --- Grid fix: pozwól kartom rosnąć wg zawartości (bez overflow na kolejne wiersze) --- */
+.view-charts .charts-scroll > .card{
+  align-self: start;
+  height: auto;
+}
+
