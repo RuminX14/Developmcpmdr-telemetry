@@ -2461,7 +2461,7 @@
     if (!chartsView) return;
 
     let card = document.getElementById('cape-cin-card');
-    const grid = getChartsContainer();
+    const grid = document.querySelector('#view-charts .charts-scroll');
     if (!grid) return;
 
     if (!card) {
@@ -2677,7 +2677,7 @@
     }
 
     // Doklej karte na koniec listy wykresow.
-    const grid = getChartsContainer();
+    const grid = document.querySelector('#view-charts .charts-scroll');
     if (!grid) return;
     let card = document.getElementById('visibility-card');
     if (!card) {
@@ -2698,17 +2698,11 @@
 
     // Ustaw jako zwykla karte na koncu listy wykresow (tak jak CAPE/CIN).
     // To gwarantuje: brak zaslaniania innych wykresow i brak sztucznego odstepu.
-    if (card.parentNode !== grid) {
-          // Wstaw wskaźnik widzialności NAD kartą Skew‑T (najstabilniejsze miejsce)
-    const skewCard = document.querySelector('#view-charts .skewt-card');
-    if (skewCard && skewCard.parentElement === grid) {
+     // Wstaw wskaźnik widzialności NAD kartą Skew‑T (najstabilniejsze miejsce)
+    const skewCard = grid.querySelector('.skewt-card');
+    if (skewCard) {
       grid.insertBefore(card, skewCard);
     } else {
-      grid.appendChild(card);
-    }
-
-    } else if (grid.lastElementChild !== card) {
-      // przenies na sam koniec kontenera
       grid.appendChild(card);
     }
 
