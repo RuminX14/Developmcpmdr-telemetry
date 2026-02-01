@@ -423,8 +423,6 @@ body {
   height: 100%;
   overflow-y: auto;
   display: grid;
-  align-items: start;
-  align-content: start;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
   grid-auto-rows: minmax(260px, auto);
@@ -649,7 +647,7 @@ body {
 
 .skewt-card canvas#chart-skewt {
   width: 100%;
-  height: 420px;
+  height: 100%;
   display: block;
 }
 
@@ -659,20 +657,27 @@ body {
   margin-top: 12px;
 }
 
-/* --- Skew-T layout fix: canvas + legenda bez nachodzenia --- */
-.skewt-body{
-  display:flex;
-  flex-direction:column;
-  gap:10px;
-}
-.skewt-legend{
-  flex:0 0 auto;
+
+/* ===== MCPMDR FIX: Skew‑T + legenda nie mogą nachodzić na kolejne karty ===== */
+
+/* Skew‑T body jako kolumna: canvas + legenda zawsze w tej samej karcie */
+.skewt-card .card-body{
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-
-/* --- Grid fix: pozwól kartom rosnąć wg zawartości (bez overflow na kolejne wiersze) --- */
-.view-charts .charts-scroll > .card{
-  align-self: start;
-  height: auto;
+/* Canvas ma stałą wysokość, żeby legenda nie wypychała go poza kartę */
+.skewt-card canvas#chart-skewt{
+  width: 100%;
+  height: 420px;
+  flex: 0 0 auto;
+  display: block;
 }
+
+/* Legenda zawsze pod wykresem, niech nie rośnie w nieskończoność */
+.skewt-card .skewt-legend{
+  flex: 0 0 auto;
+}
+
 
