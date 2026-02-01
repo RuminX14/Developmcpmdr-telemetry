@@ -1104,11 +1104,8 @@
     const showMarine = !!layers.marine;
 
     const parent = canvas.parentElement || canvas;
-    // Uwaga: canvas ma też legendę pod spodem w tej samej karcie.
-    // Żeby nic nie nachodziło na inne karty, rozmiaruj Skew‑T po realnym rozmiarze CANVAS,
-    // a nie po wysokości całego kontenera.
-    const width = canvas.clientWidth || parent.clientWidth || 600;
-    const height = canvas.clientHeight || 420;
+    const width = parent.clientWidth || 600;
+    const height = parent.clientHeight || 320;
     const dpr = window.devicePixelRatio || 1;
 
     if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
@@ -2464,7 +2461,7 @@
     if (!chartsView) return;
 
     let card = document.getElementById('cape-cin-card');
-    const grid = document.querySelector('#view-charts .charts-scroll');
+    const grid = getChartsContainer();
     if (!grid) return;
 
     if (!card) {
@@ -2680,7 +2677,7 @@
     }
 
     // Doklej karte na koniec listy wykresow.
-    const grid = document.querySelector('#view-charts .charts-scroll');
+    const grid = getChartsContainer();
     if (!grid) return;
     let card = document.getElementById('visibility-card');
     if (!card) {
@@ -2702,7 +2699,14 @@
     // Ustaw jako zwykla karte na koncu listy wykresow (tak jak CAPE/CIN).
     // To gwarantuje: brak zaslaniania innych wykresow i brak sztucznego odstepu.
     if (card.parentNode !== grid) {
+          // Wstaw wskaźnik widzialności NAD kartą Skew‑T (najstabilniejsze miejsce)
+    const skewCard = document.querySelector('#view-charts .skewt-card');
+    if (skewCard && skewCard.parentElement === grid) {
+      grid.insertBefore(card, skewCard);
+    } else {
       grid.appendChild(card);
+    }
+
     } else if (grid.lastElementChild !== card) {
       // przenies na sam koniec kontenera
       grid.appendChild(card);
