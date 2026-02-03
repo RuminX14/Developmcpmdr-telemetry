@@ -680,4 +680,22 @@ body {
   flex: 0 0 auto;
 }
 
+/* ===== TRYB PREZENTACJI (RZUTNIK) ===== */
 
+body.presentation-mode .topbar .ttgo-url,
+body.presentation-mode .topbar .search-box,
+body.presentation-mode .topbar .lang {
+  display: none !important;
+}
+
+body.presentation-mode .status-line {
+  display: none !important;
+}
+
+body.presentation-mode .card .value {
+  font-size: 22px;
+}
+
+body.presentation-mode .card-head {
+  font-size: 15px;
+}
