@@ -2986,3 +2986,86 @@
     restartFetching();
   });
 })();
+/* === TRYB PREZENTACJI (fullscreen + auto-przegląd kart) === */
+(function () {
+  let active = false;
+  let timer = null;
+  let step = 0;
+
+  const TELEMETRY_MS = 12000; // czas mapy
+  const CARD_MS = 10000;     // czas na kartę
+
+  function setView(view) {
+    const btn = document.querySelector(`.tab[data-view="${view}"]`);
+    if (btn && !btn.classList.contains('active')) btn.click();
+  }
+
+  function getCards() {
+    const grid = document.querySelector('#view-charts .charts-scroll');
+    return grid ? Array.from(grid.querySelectorAll(':scope > .card')) : [];
+  }
+
+  function scrollTo(card) {
+    card?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function stop() {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  }
+
+  function run() {
+    if (!active) return;
+
+    if (step === 0) {
+      setView('telemetry');
+      timer = setTimeout(() => {
+        step++;
+        run();
+      }, TELEMETRY_MS);
+      return;
+    }
+
+    setView('charts');
+    const cards = getCards();
+    if (cards.length) {
+      scrollTo(cards[(step - 1) % cards.length]);
+    }
+
+    step++;
+    timer = setTimeout(run, CARD_MS);
+  }
+
+  async function start() {
+    active = true;
+    step = 0;
+    document.body.classList.add('presentation-mode');
+
+    if (!document.fullscreenElement) {
+      try {
+        await document.documentElement.requestFullscreen();
+      } catch {}
+    }
+
+    run();
+  }
+
+  function end() {
+    active = false;
+    stop();
+    document.body.classList.remove('presentation-mode');
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('btn-present')?.addEventListener('click', () => {
+      active ? end() : start();
+    });
+
+    document.addEventListener('fullscreenchange', () => {
+      if (!document.fullscreenElement && active) end();
+    });
+  });
+})();
