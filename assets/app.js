@@ -3166,7 +3166,7 @@
 
     rememberAndMove(document.getElementById('map'), mapSlot);
     rememberAndMove(document.getElementById('sonde-panel'), panelSlot);
-    rememberAndMove(document.getElementById('sonde-tabs')?.closest('.card') || document.getElementById('sonde-tabs'), sondesSlot);
+    // W trybie prezentacji nie pokazujemy listy aktywnych radiosond (sonde-tabs)
 
     // fullscreen (opcjonalnie, jak przeglądarka pozwoli)
     if (!document.fullscreenElement) {
@@ -3235,7 +3235,3 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
   else bind();
 })();
-
-
-
-
