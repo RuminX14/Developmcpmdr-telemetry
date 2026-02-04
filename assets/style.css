@@ -762,3 +762,19 @@ body.presentation-mode #view-presentation {
 }
 
 
+/* W trybie prezentacji nie pokazuj listy aktywnych radiosond */
+body.presentation-mode .sonde-list-card {
+  display: none !important;
+}
+
+/* Podkreśl prawą kolumnę (slajdy), żeby było widać podział 50/50 */
+.presentation-right {
+  border-radius: 18px;
+  box-shadow: 0 18px 40px rgba(0,0,0,0.55);
+  overflow: hidden;
+  padding: 10px 12px 12px;
+  background: rgba(6, 10, 22, 0.72);
+}
+.presentation-slide-stage {
+  overflow: auto;
+}
