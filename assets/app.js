@@ -2461,7 +2461,7 @@
     if (!chartsView) return;
 
     let card = document.getElementById('cape-cin-card');
-    const grid = document.querySelector('#view-charts .charts-scroll');
+    const grid = getChartsContainer();
     if (!grid) return;
 
     if (!card) {
@@ -2677,7 +2677,7 @@
     }
 
     // Doklej karte na koniec listy wykresow.
-    const grid = document.querySelector('#view-charts .charts-scroll');
+    const grid = getChartsContainer();
     if (!grid) return;
     let card = document.getElementById('visibility-card');
     if (!card) {
@@ -2698,11 +2698,10 @@
 
     // Ustaw jako zwykla karte na koncu listy wykresow (tak jak CAPE/CIN).
     // To gwarantuje: brak zaslaniania innych wykresow i brak sztucznego odstepu.
-     // Wstaw wskaźnik widzialności NAD kartą Skew‑T (najstabilniejsze miejsce)
-    const skewCard = grid.querySelector('.skewt-card');
-    if (skewCard) {
-      grid.insertBefore(card, skewCard);
-    } else {
+    if (card.parentNode !== grid) {
+      grid.appendChild(card);
+    } else if (grid.lastElementChild !== card) {
+      // przenies na sam koniec kontenera
       grid.appendChild(card);
     }
 
@@ -2986,27 +2985,119 @@
     restartFetching();
   });
 })();
-/* === TRYB PREZENTACJI (fullscreen + auto-przegląd kart) === */
+
+/* =========================================================
+   TRYB PREZENTACJI SPLIT 50/50
+   - Lewa: duża mapa + dane telemetryczne LIVE
+   - Prawa: slajdy z kartami wykresów (bez mini-mapy)
+   - Wskaźniki (Stabilność + CAPE/CIN + Widzialność) razem jako jeden slajd (3 karty naraz)
+   - Bez fixed/sticky/absolute: używa osobnego widoku #view-presentation
+   ========================================================= */
 (function () {
   let active = false;
   let timer = null;
-  let step = 0;
+  let slideIndex = 0;
+  let paused = false;
 
-  const TELEMETRY_MS = 12000; // czas mapy
-  const CARD_MS = 10000;     // czas na kartę
+  const SLIDE_MS = 10000;
 
-  function setView(view) {
-    const btn = document.querySelector(`.tab[data-view="${view}"]`);
-    if (btn && !btn.classList.contains('active')) btn.click();
+  // zapamiętanie oryginalnych miejsc w DOM (żeby wszystko wróciło 1:1)
+  const moved = new Map();
+
+  function rememberAndMove(el, newParent, before = null) {
+    if (!el || !newParent) return;
+    if (!moved.has(el)) {
+      moved.set(el, { parent: el.parentNode, next: el.nextSibling });
+    }
+    if (before) newParent.insertBefore(el, before);
+    else newParent.appendChild(el);
   }
 
-  function getCards() {
+  function restoreAll() {
+    for (const [el, info] of moved.entries()) {
+      if (!info.parent) continue;
+      if (info.next && info.next.parentNode === info.parent) info.parent.insertBefore(el, info.next);
+      else info.parent.appendChild(el);
+    }
+    moved.clear();
+  }
+
+  function showOnlyPresentationView() {
+    document.body.classList.add('presentation-mode');
+  }
+
+  function hidePresentationView() {
+    document.body.classList.remove('presentation-mode');
+  }
+
+  function invalidateLeafletAndCharts() {
+    try { map && map.invalidateSize && map.invalidateSize(); } catch (e) {}
+    // Chart.js: spróbuj wywołać resize na istniejących instancjach
+    try {
+      if (window.Chart && Chart.instances) {
+        Object.values(Chart.instances).forEach(ch => { try { ch.resize(); } catch (e) {} });
+      }
+    } catch (e) {}
+  }
+
+  function getChartsCardsExcludingMiniMap() {
     const grid = document.querySelector('#view-charts .charts-scroll');
-    return grid ? Array.from(grid.querySelectorAll(':scope > .card')) : [];
+    if (!grid) return [];
+    const cards = Array.from(grid.querySelectorAll(':scope > .card'));
+    return cards.filter(card => !card.querySelector('#mini-map'));
   }
 
-  function scrollTo(card) {
-    card?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  function getIndicatorCards() {
+    const indicators = [];
+    // Stabilność: karta która zawiera canvas#chart-stability
+    const stab = document.querySelector('#chart-stability')?.closest('.card');
+    if (stab) indicators.push(stab);
+
+    // CAPE/CIN: #cape-cin-card to już .card.wide
+    const cape = document.getElementById('cape-cin-card');
+    if (cape) indicators.push(cape);
+
+    // Widzialność: szukamy po klasie używanej w Twoim kodzie
+    const vis = document.querySelector('.visibility-card') || document.getElementById('visibility-card');
+    if (vis) indicators.push(vis);
+
+    return indicators;
+  }
+
+  function buildSlides() {
+    const slides = [];
+
+    // Slajdy wykresów: każda karta osobno (bez mini-mapy)
+    const chartCards = getChartsCardsExcludingMiniMap();
+    chartCards.forEach(card => slides.push({ type: 'card', nodes: [card] }));
+
+    // Slajd wskaźników: 3 karty razem (jeśli są)
+    const inds = getIndicatorCards();
+    if (inds.length >= 2) {
+      slides.push({ type: 'indicators', nodes: inds });
+    }
+
+    return slides;
+  }
+
+  function clearStage(stage) {
+    while (stage.firstChild) stage.removeChild(stage.firstChild);
+  }
+
+  function renderSlide(stage, slide) {
+    clearStage(stage);
+    if (!slide) return;
+
+    if (slide.type === 'indicators') {
+      const wrap = document.createElement('div');
+      wrap.className = 'presentation-indicators-stack';
+      stage.appendChild(wrap);
+      slide.nodes.forEach(node => rememberAndMove(node, wrap));
+      return;
+    }
+
+    // single card
+    rememberAndMove(slide.nodes[0], stage);
   }
 
   function stop() {
@@ -3014,58 +3105,124 @@
     timer = null;
   }
 
-  function run() {
-    if (!active) return;
-
-    if (step === 0) {
-      setView('telemetry');
-      timer = setTimeout(() => {
-        step++;
-        run();
-      }, TELEMETRY_MS);
-      return;
-    }
-
-    setView('charts');
-    const cards = getCards();
-    if (cards.length) {
-      scrollTo(cards[(step - 1) % cards.length]);
-    }
-
-    step++;
-    timer = setTimeout(run, CARD_MS);
+  function scheduleNext() {
+    stop();
+    if (!active || paused) return;
+    timer = setTimeout(() => {
+      next();
+      scheduleNext();
+    }, SLIDE_MS);
   }
 
-  async function start() {
+  function next() {
+    const stage = document.getElementById('presentation-slide-stage');
+    if (!stage) return;
+    const slides = buildSlides();
+    if (!slides.length) return;
+
+    slideIndex = (slideIndex + 1) % slides.length;
+    renderSlide(stage, slides[slideIndex]);
+    invalidateLeafletAndCharts();
+  }
+
+  function prev() {
+    const stage = document.getElementById('presentation-slide-stage');
+    if (!stage) return;
+    const slides = buildSlides();
+    if (!slides.length) return;
+
+    slideIndex = (slideIndex - 1 + slides.length) % slides.length;
+    renderSlide(stage, slides[slideIndex]);
+    invalidateLeafletAndCharts();
+  }
+
+  function togglePause() {
+    paused = !paused;
+    if (!paused) scheduleNext();
+    else stop();
+  }
+
+  async function enter() {
+    if (active) return;
     active = true;
-    step = 0;
-    document.body.classList.add('presentation-mode');
 
+    // pokaż widok prezentacji
+    showOnlyPresentationView();
+
+    // przenieś mapę i panele telemetryczne do lewego slotu
+    const mapSlot = document.getElementById('presentation-map-slot');
+    const panelSlot = document.getElementById('presentation-panel-slot');
+    const sondesSlot = document.getElementById('presentation-sondes-slot');
+
+    rememberAndMove(document.getElementById('map'), mapSlot);
+    rememberAndMove(document.getElementById('sonde-panel'), panelSlot);
+    rememberAndMove(document.getElementById('sonde-tabs')?.closest('.card') || document.getElementById('sonde-tabs'), sondesSlot);
+
+    // fullscreen (opcjonalnie, jak przeglądarka pozwoli)
     if (!document.fullscreenElement) {
-      try {
-        await document.documentElement.requestFullscreen();
-      } catch {}
+      try { await document.documentElement.requestFullscreen(); } catch (e) {}
     }
 
-    run();
+    // start: pierwszy slajd
+    const stage = document.getElementById('presentation-slide-stage');
+    const slides = buildSlides();
+    slideIndex = 0;
+    paused = false;
+
+    renderSlide(stage, slides[0]);
+    invalidateLeafletAndCharts();
+    scheduleNext();
   }
 
-  function end() {
+  function exit() {
+    if (!active) return;
     active = false;
     stop();
-    document.body.classList.remove('presentation-mode');
+    paused = false;
+
+    clearStage(document.getElementById('presentation-slide-stage'));
+    restoreAll();
+    hidePresentationView();
+    invalidateLeafletAndCharts();
+
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(() => {});
     }
   }
 
-  document.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('btn-present')?.addEventListener('click', () => {
-      active ? end() : start();
-    });
+  function bind() {
+    const btn = document.getElementById('btn-present');
+    if (btn) btn.addEventListener('click', () => (active ? exit() : enter()));
 
     document.addEventListener('fullscreenchange', () => {
-      if (!document.fullscreenElement && active) end();
+      if (!document.fullscreenElement && active) exit();
     });
-  });
+
+    document.addEventListener('keydown', (e) => {
+      if (!active) return;
+
+      const tag = (document.activeElement && document.activeElement.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea') return;
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        togglePause();
+      } else if (e.code === 'ArrowRight') {
+        e.preventDefault();
+        next();
+        scheduleNext();
+      } else if (e.code === 'ArrowLeft') {
+        e.preventDefault();
+        prev();
+        scheduleNext();
+      } else if (e.code === 'Escape') {
+        e.preventDefault();
+        exit();
+      }
+    });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
+  else bind();
 })();
+
