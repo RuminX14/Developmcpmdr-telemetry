@@ -3152,6 +3152,15 @@
 
     // przenieś mapę i panele telemetryczne do lewego slotu
     const mapSlot = document.getElementById('presentation-map-slot');
+
+    // Guard: jeśli HTML nie zawiera widoku prezentacji, nie wchodź w tryb (żeby nie było czarnego ekranu)
+    if (!mapSlot || !document.getElementById('view-presentation')) {
+      console.warn('Brak #view-presentation lub slotów prezentacji w index.html.');
+      hidePresentationView();
+      active = false;
+      return;
+    }
+
     const panelSlot = document.getElementById('presentation-panel-slot');
     const sondesSlot = document.getElementById('presentation-sondes-slot');
 
@@ -3226,5 +3235,6 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
   else bind();
 })();
+
 
 
