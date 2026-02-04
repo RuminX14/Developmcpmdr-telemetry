@@ -290,7 +290,7 @@
       offset: [10, 0]
     });
 
-    const kick = () => { map.invalidateSize(false); };
+    const kick = () => { state.map.invalidateSize(false); };
     requestAnimationFrame(kick);
     setTimeout(kick, 250);
     setTimeout(kick, 1000);
@@ -319,7 +319,7 @@
         if (view === 'telemetry') {
           $('#view-telemetry').classList.add('show');
           $('#view-charts').classList.remove('show');
-          setTimeout(() => state.map && state.map.invalidateSize(), 120);
+          setTimeout(() => state.map && state.state.map.invalidateSize(), 120);
         } else {
           $('#view-telemetry').classList.remove('show');
           $('#view-charts').classList.add('show');
@@ -2461,7 +2461,7 @@
     if (!chartsView) return;
 
     let card = document.getElementById('cape-cin-card');
-    const grid = getChartsContainer();
+    const grid = document.querySelector('#view-charts .charts-scroll');
     if (!grid) return;
 
     if (!card) {
@@ -2677,7 +2677,7 @@
     }
 
     // Doklej karte na koniec listy wykresow.
-    const grid = getChartsContainer();
+    const grid = document.querySelector('#view-charts .charts-scroll');
     if (!grid) return;
     let card = document.getElementById('visibility-card');
     if (!card) {
@@ -2698,10 +2698,11 @@
 
     // Ustaw jako zwykla karte na koncu listy wykresow (tak jak CAPE/CIN).
     // To gwarantuje: brak zaslaniania innych wykresow i brak sztucznego odstepu.
-    if (card.parentNode !== grid) {
-      grid.appendChild(card);
-    } else if (grid.lastElementChild !== card) {
-      // przenies na sam koniec kontenera
+        // Wstaw wskaźnik widzialności NAD kartą Skew‑T (najstabilniejsze miejsce)
+    const skewCard = grid.querySelector('.skewt-card');
+    if (skewCard) {
+      grid.insertBefore(card, skewCard);
+    } else {
       grid.appendChild(card);
     }
 
@@ -3031,11 +3032,11 @@
   }
 
   function invalidateLeafletAndCharts() {
-    try { map && map.invalidateSize && map.invalidateSize(); } catch (e) {}
-    // Chart.js: spróbuj wywołać resize na istniejących instancjach
+    try { (state && state.map) && state.map.invalidateSize && state.state.map.invalidateSize(); } catch (e) {}
+    // Chart.js: spróbuj wywołać resize na znanych instancjach (bez grzebania w renderach)
     try {
-      if (window.Chart && Chart.instances) {
-        Object.values(Chart.instances).forEach(ch => { try { ch.resize(); } catch (e) {} });
+      if (state && state.charts) {
+        Object.values(state.charts).forEach((ch) => { try { ch && ch.resize && ch.resize(); } catch (e) {} });
       }
     } catch (e) {}
   }
@@ -3225,4 +3226,5 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
   else bind();
 })();
+
 
