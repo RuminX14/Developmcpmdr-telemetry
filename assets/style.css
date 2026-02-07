@@ -762,9 +762,12 @@ body.presentation-mode #view-presentation {
 }
 
 
-/* ===== PRESENTATION MODE (SAFE, NO DUPLICATES) =====
-   Cel: split 50/50 (lewa: mapa + telemetria, prawa: 1 wykres naraz), bez ruszania zakładki Dane graficzne w normalnym trybie.
-   UWAGA: bez :has() — kompatybilne szeroko.
+
+
+/* ===== PRESENTATION MODE (SAFE) =====
+   Split 50/50 w trybie prezentacji.
+   Kluczowe: ukrywanie/wyświetlanie slajdów uruchamia się dopiero po ustawieniu
+   klasy body.presentation-ready (żeby nie było czarnego ekranu, gdy elementy jeszcze się renderują).
 */
 body.presentation-mode .topbar,
 body.presentation-mode .status-line {
@@ -795,7 +798,7 @@ body.presentation-mode #view-charts {
   padding: 10px;
 }
 
-/* LEWA: mapa + telemetria pod spodem */
+/* LEWA */
 body.presentation-mode #view-telemetry {
   display: flex;
   flex-direction: column;
@@ -807,34 +810,31 @@ body.presentation-mode #view-telemetry #map {
   border-radius: 16px;
   overflow: hidden;
 }
-
-/* w prezentacji ukryj listę aktywnych radiosond */
 body.presentation-mode #view-telemetry .sonde-list-card {
   display: none !important;
 }
 
-/* w prezentacji pokaż tylko kartę z telemetrią oznaczoną klasą .presentation-keep */
-body.presentation-mode #view-telemetry .card {
+/* Telemetria: w prezentacji docelowo pokazujemy tylko kartę z danymi (oznaczoną .presentation-keep).
+   Ale dopiero gdy presentation-ready. */
+body.presentation-mode.presentation-ready #view-telemetry .card {
   display: none;
 }
-body.presentation-mode #view-telemetry .card.presentation-keep {
+body.presentation-mode.presentation-ready #view-telemetry .card.presentation-keep {
   display: block;
 }
-body.presentation-mode #view-telemetry #sonde-panel {
+body.presentation-mode #sonde-panel {
   max-height: 42vh;
   overflow: auto;
 }
 
-/* PRAWA: tylko 1 slajd (1 karta) naraz */
-body.presentation-mode #view-charts .charts-scroll > .card {
+/* PRAWA: slajdy (dopiero po presentation-ready) */
+body.presentation-mode.presentation-ready #view-charts .charts-scroll > .card {
   display: none;
 }
-body.presentation-mode #view-charts .charts-scroll > .card.presentation-active-slide {
+body.presentation-mode.presentation-ready #view-charts .charts-scroll > .card.presentation-active-slide {
   display: block;
 }
-
-/* mini-mapa nigdy nie jest slajdem */
-body.presentation-mode #view-charts .charts-scroll > .card.presentation-skip {
+body.presentation-mode.presentation-ready #view-charts .charts-scroll > .card.presentation-skip {
   display: none !important;
 }
 
@@ -844,4 +844,3 @@ body.presentation-mode #view-charts .presentation-indicator-group .indicator-sta
   flex-direction: column;
   gap: 12px;
 }
-
