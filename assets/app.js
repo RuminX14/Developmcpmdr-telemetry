@@ -2999,6 +2999,7 @@
   let timer = null;
   let slideIndex = 0;
   let paused = false;
+  let telemetryScrollTimer = null;
 
   const SLIDE_MS = 10000;
 
@@ -3050,188 +3051,41 @@
 
   function getIndicatorCards() {
     const indicators = [];
-    // Stabilność: karta która zawiera canvas#chart-stability
-    const stab = document.querySelector('#chart-stability')?.closest('.card');
-    if (stab) indicators.push(stab);
 
-    // CAPE/CIN: #cape-cin-card to już .card.wide
-    const cape = document.getElementById('cape-cin-card');
-    if (cape) indicators.push(cape);
+    // 1) Stabilność: karta z wykresem stabilności (jeśli istnieje)
+    const stabCard = document.querySelector('#chart-stability')?.closest('.card');
+    if (stabCard) indicators.push(stabCard);
 
-    // Widzialność: szukamy po klasie używanej w Twoim kodzie
-    const vis = document.querySelector('.visibility-card') || document.getElementById('visibility-card');
-    if (vis) indicators.push(vis);
+    // 2) CAPE/CIN: karta pod id
+    const capeCard = document.getElementById('cape-cin-card');
+    if (capeCard) indicators.push(capeCard);
 
-    return indicators;
+    // 3) Widzialność: karta z klasą visibility-card (z Twojego kodu)
+    const visCard = document.querySelector('.visibility-card') || document.getElementById('visibility-card');
+    if (visCard) indicators.push(visCard);
+
+    // Usuń duplikaty (na wypadek jakby któryś selector wskazał to samo)
+    return Array.from(new Set(indicators));
+  })();
+  function startTelemetryAutoScroll() {
+    stopTelemetryAutoScroll();
+    const panel = document.getElementById('presentation-panel-slot');
+    if (!panel) return;
+
+    telemetryScrollTimer = setInterval(() => {
+      if (!active || paused) return;
+      // Powolne przewijanie w dół; po dojściu do końca wróć na górę
+      panel.scrollTop += 1;
+      const max = panel.scrollHeight - panel.clientHeight;
+      if (max > 0 && panel.scrollTop >= max) panel.scrollTop = 0;
+    }, 50); // 20px/s
   }
 
-  function buildSlides() {
-    const slides = [];
-
-    // Slajdy wykresów: każda karta osobno (bez mini-mapy)
-    const chartCards = getChartsCardsExcludingMiniMap();
-    chartCards.forEach(card => slides.push({ type: 'card', nodes: [card] }));
-
-    // Slajd wskaźników: 3 karty razem (jeśli są)
-    const inds = getIndicatorCards();
-    if (inds.length >= 2) {
-      slides.push({ type: 'indicators', nodes: inds });
-    }
-
-    return slides;
-  }
-
-  function clearStage(stage) {
-    while (stage.firstChild) stage.removeChild(stage.firstChild);
-  }
-
-  function renderSlide(stage, slide) {
-    clearStage(stage);
-    if (!slide) return;
-
-    if (slide.type === 'indicators') {
-      const wrap = document.createElement('div');
-      wrap.className = 'presentation-indicators-stack';
-      stage.appendChild(wrap);
-      slide.nodes.forEach(node => rememberAndMove(node, wrap));
-      return;
-    }
-
-    // single card
-    rememberAndMove(slide.nodes[0], stage);
-  }
-
-  function stop() {
-    if (timer) clearTimeout(timer);
-    timer = null;
-  }
-
-  function scheduleNext() {
-    stop();
-    if (!active || paused) return;
-    timer = setTimeout(() => {
-      next();
-      scheduleNext();
-    }, SLIDE_MS);
-  }
-
-  function next() {
-    const stage = document.getElementById('presentation-slide-stage');
-    if (!stage) return;
-    const slides = buildSlides();
-    if (!slides.length) return;
-
-    slideIndex = (slideIndex + 1) % slides.length;
-    renderSlide(stage, slides[slideIndex]);
-    invalidateLeafletAndCharts();
-  }
-
-  function prev() {
-    const stage = document.getElementById('presentation-slide-stage');
-    if (!stage) return;
-    const slides = buildSlides();
-    if (!slides.length) return;
-
-    slideIndex = (slideIndex - 1 + slides.length) % slides.length;
-    renderSlide(stage, slides[slideIndex]);
-    invalidateLeafletAndCharts();
-  }
-
-  function togglePause() {
-    paused = !paused;
-    if (!paused) scheduleNext();
-    else stop();
-  }
-
-  async function enter() {
-    if (active) return;
-    active = true;
-
-    // pokaż widok prezentacji
-    showOnlyPresentationView();
-
-    // przenieś mapę i panele telemetryczne do lewego slotu
-    const mapSlot = document.getElementById('presentation-map-slot');
-
-    // Guard: jeśli HTML nie zawiera widoku prezentacji, nie wchodź w tryb (żeby nie było czarnego ekranu)
-    if (!mapSlot || !document.getElementById('view-presentation')) {
-      console.warn('Brak #view-presentation lub slotów prezentacji w index.html.');
-      hidePresentationView();
-      active = false;
-      return;
-    }
-
-    const panelSlot = document.getElementById('presentation-panel-slot');
-    const sondesSlot = document.getElementById('presentation-sondes-slot');
-
-    rememberAndMove(document.getElementById('map'), mapSlot);
-    rememberAndMove(document.getElementById('sonde-panel'), panelSlot);
-    // W trybie prezentacji nie pokazujemy listy aktywnych radiosond (sonde-tabs)
-
-    // fullscreen (opcjonalnie, jak przeglądarka pozwoli)
-    if (!document.fullscreenElement) {
-      try { await document.documentElement.requestFullscreen(); } catch (e) {}
-    }
-
-    // start: pierwszy slajd
-    const stage = document.getElementById('presentation-slide-stage');
-    const slides = buildSlides();
-    slideIndex = 0;
-    paused = false;
-
-    renderSlide(stage, slides[0]);
-    invalidateLeafletAndCharts();
-    scheduleNext();
-  }
-
-  function exit() {
-    if (!active) return;
-    active = false;
-    stop();
-    paused = false;
-
-    clearStage(document.getElementById('presentation-slide-stage'));
-    restoreAll();
-    hidePresentationView();
-    invalidateLeafletAndCharts();
-
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
+  function stopTelemetryAutoScroll() {
+    if (telemetryScrollTimer) {
+      clearInterval(telemetryScrollTimer);
+      telemetryScrollTimer = null;
     }
   }
 
-  function bind() {
-    const btn = document.getElementById('btn-present');
-    if (btn) btn.addEventListener('click', () => (active ? exit() : enter()));
 
-    document.addEventListener('fullscreenchange', () => {
-      if (!document.fullscreenElement && active) exit();
-    });
-
-    document.addEventListener('keydown', (e) => {
-      if (!active) return;
-
-      const tag = (document.activeElement && document.activeElement.tagName || '').toLowerCase();
-      if (tag === 'input' || tag === 'textarea') return;
-
-      if (e.code === 'Space') {
-        e.preventDefault();
-        togglePause();
-      } else if (e.code === 'ArrowRight') {
-        e.preventDefault();
-        next();
-        scheduleNext();
-      } else if (e.code === 'ArrowLeft') {
-        e.preventDefault();
-        prev();
-        scheduleNext();
-      } else if (e.code === 'Escape') {
-        e.preventDefault();
-        exit();
-      }
-    });
-  }
-
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
-  else bind();
-})();
