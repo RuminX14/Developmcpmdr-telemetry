@@ -2461,7 +2461,7 @@
     if (!chartsView) return;
 
     let card = document.getElementById('cape-cin-card');
-    const grid = document.querySelector('#view-charts .charts-scroll');
+    const grid = getChartsContainer();
     if (!grid) return;
 
     if (!card) {
@@ -2677,7 +2677,7 @@
     }
 
     // Doklej karte na koniec listy wykresow.
-    const grid = document.querySelector('#view-charts .charts-scroll');
+    const grid = getChartsContainer();
     if (!grid) return;
     let card = document.getElementById('visibility-card');
     if (!card) {
@@ -2698,11 +2698,10 @@
 
     // Ustaw jako zwykla karte na koncu listy wykresow (tak jak CAPE/CIN).
     // To gwarantuje: brak zaslaniania innych wykresow i brak sztucznego odstepu.
-        // Wstaw wskaźnik widzialności NAD kartą Skew‑T (najstabilniejsze miejsce)
-    const skewCard = grid.querySelector('.skewt-card');
-    if (skewCard) {
-      grid.insertBefore(card, skewCard);
-    } else {
+    if (card.parentNode !== grid) {
+      grid.appendChild(card);
+    } else if (grid.lastElementChild !== card) {
+      // przenies na sam koniec kontenera
       grid.appendChild(card);
     }
 
@@ -2989,252 +2988,202 @@
 
 
 /* =========================================================
-   TRYB PREZENTACJI SPLIT (BEZ PSUCIA LOGIKI)
-   - Lewa: mapa + panel telemetryczny LIVE
-   - Prawa: zakładka "Dane graficzne" przewijana jako slajdy (scrollIntoView)
-   - Wskaźniki (Stabilność + CAPE/CIN + Widzialność) grupowane TYLKO na czas prezentacji
-   - Nie przenosi kart wykresów poza ich kontener (eliminuje duplikaty)
+   PRESENTATION_MODE_SPLIT_50_50
+   - Split 50/50: lewa (telemetria: mapa + wartości), prawa (wykresy: slajdy)
+   - Bez przenoszenia wykresów poza #view-charts .charts-scroll (brak duplikatów)
+   - W prezentacji: 3 wskaźniki razem (Stabilność + CAPE/CIN + Widzialność) jako jeden slajd
+   - Auto-scroll wartości pod mapą (powoli)
+   Sterowanie: Space pauza, ←/→ slajd, ESC wyjście
    ========================================================= */
 (function () {
-  let active = false;
-  let timer = null;
-  let paused = false;
-  let slideIdx = 0;
-  let telemetryScrollTimer = null;
-
   const SLIDE_MS = 10000;
-  const TELEMETRY_SCROLL_STEP = 1;   // px
-  const TELEMETRY_SCROLL_INTERVAL = 50; // ms (~20px/s)
+  const TELEMETRY_SCROLL_MS = 50; // ~20px/s
+  const TELEMETRY_SCROLL_STEP = 1;
 
-  // zapamiętanie DOM, żeby wszystko wróciło
-  const moved = new Map();
-  let indicatorGroup = null;
-  let indicatorGroupInfo = null;
+  let active = false;
+  let paused = false;
+  let slideTimer = null;
+  let teleTimer = null;
+  let slideIndex = 0;
 
-  function rememberAndMove(el, newParent) {
-    if (!el || !newParent) return;
-    if (!moved.has(el)) moved.set(el, { parent: el.parentNode, next: el.nextSibling });
-    newParent.appendChild(el);
+  let indicatorState = null;
+
+  function qs(sel, root=document){ return root.querySelector(sel); }
+  function qsa(sel, root=document){ return Array.from(root.querySelectorAll(sel)); }
+
+  function getChartsScroll() {
+    return qs('#view-charts .charts-scroll');
   }
 
-  function restoreAll() {
-    for (const [el, info] of moved.entries()) {
-      if (!info.parent) continue;
-      if (info.next && info.next.parentNode === info.parent) info.parent.insertBefore(el, info.next);
-      else info.parent.appendChild(el);
-    }
-    moved.clear();
+  function getTelemetryScrollPanel() {
+    return qs('#sonde-panel') || qs('#view-telemetry');
   }
 
-  function setPresentationMode(on) {
-    document.body.classList.toggle('presentation-mode', !!on);
+  function stopTimers() {
+    if (slideTimer) { clearTimeout(slideTimer); slideTimer = null; }
+    if (teleTimer) { clearInterval(teleTimer); teleTimer = null; }
   }
 
   function startTelemetryAutoScroll() {
-    stopTelemetryAutoScroll();
-    const panel = document.getElementById('presentation-panel-slot');
+    if (teleTimer) return;
+    const panel = getTelemetryScrollPanel();
     if (!panel) return;
-    telemetryScrollTimer = setInterval(() => {
+
+    teleTimer = setInterval(() => {
       if (!active || paused) return;
-      panel.scrollTop += TELEMETRY_SCROLL_STEP;
       const max = panel.scrollHeight - panel.clientHeight;
-      if (max > 0 && panel.scrollTop >= max) panel.scrollTop = 0;
-    }, TELEMETRY_SCROLL_INTERVAL);
+      if (max <= 2) return;
+      panel.scrollTop += TELEMETRY_SCROLL_STEP;
+      if (panel.scrollTop >= max) panel.scrollTop = 0;
+    }, TELEMETRY_SCROLL_MS);
   }
 
-  function stopTelemetryAutoScroll() {
-    if (telemetryScrollTimer) {
-      clearInterval(telemetryScrollTimer);
-      telemetryScrollTimer = null;
+  function collectIndicatorCards() {
+    const stabCard = qs('#chart-stability')?.closest('.card') || null;
+    const capeCard = qs('#cape-cin-card') || null;
+    const visCard = qs('.visibility-card') || qs('#visibility-card') || null;
+    return [stabCard, capeCard, visCard].filter(Boolean);
+  }
+
+  function ensureIndicatorGroupInPresentation() {
+    if (!active) return;
+
+    const grid = getChartsScroll();
+    if (!grid) return;
+
+    const cards = collectIndicatorCards();
+    if (!cards.length) return;
+
+    if (qs('.presentation-indicator-group', grid)) return;
+
+    indicatorState = cards.map(card => ({ card, parent: card.parentNode, next: card.nextSibling }));
+
+    const wrap = document.createElement('div');
+    wrap.className = 'card wide presentation-indicator-group';
+    wrap.innerHTML = `
+      <div class="card-head"><span>Stan atmosfery (wskaźniki)</span></div>
+      <div class="card-body indicator-stack"></div>
+    `;
+
+    const first = cards[0];
+    grid.insertBefore(wrap, first);
+
+    const body = qs('.indicator-stack', wrap);
+    cards.forEach(card => body.appendChild(card));
+  }
+
+  function restoreIndicators() {
+    const grid = getChartsScroll();
+    if (grid) {
+      const wrap = qs('.presentation-indicator-group', grid);
+      if (wrap) wrap.remove();
     }
-  }
+    if (!indicatorState) return;
 
-  function invalidateLeafletAndCharts() {
-    try { state?.map?.invalidateSize?.(); } catch (e) {}
-    try {
-      if (state && state.charts) {
-        Object.values(state.charts).forEach(ch => { try { ch?.resize?.(); } catch (e) {} });
-      }
-    } catch (e) {}
-  }
-
-  function getChartsGrid() {
-    return document.querySelector('#view-charts .charts-scroll');
+    indicatorState.forEach(({ card, parent, next }) => {
+      if (!parent) return;
+      if (next && next.parentNode === parent) parent.insertBefore(card, next);
+      else parent.appendChild(card);
+    });
+    indicatorState = null;
   }
 
   function getSlideTargets() {
-    const grid = getChartsGrid();
+    const grid = getChartsScroll();
     if (!grid) return [];
-    // slajdy = bezpośrednie dzieci: karty + ewentualnie grupa wskaźników
-    return Array.from(grid.children).filter(el => {
-      if (el.classList?.contains('presentation-indicator-group')) return true;
-      if (el.classList?.contains('card')) return true;
-      return false;
-    });
+    return qsa(':scope > .card', grid).filter(card => !qs('#mini-map', card));
   }
 
-  function scrollToTarget(el) {
-    el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
-
-  function groupIndicators() {
-    const grid = getChartsGrid();
-    if (!grid) return;
-
-    const stab = document.querySelector('#chart-stability')?.closest('.card');
-    const cape = document.getElementById('cape-cin-card');
-    const vis  = document.querySelector('.visibility-card') || document.getElementById('visibility-card');
-
-    const nodes = [stab, cape, vis].filter(Boolean);
-    if (nodes.length < 2) return; // nie ma co grupować
-
-    // jeśli już zgrupowane, wyjdź
-    if (grid.querySelector('.presentation-indicator-group')) return;
-
-    indicatorGroup = document.createElement('div');
-    indicatorGroup.className = 'presentation-indicator-group';
-
-    // zapamiętaj miejsce wstawienia (przed pierwszym wskaźnikiem)
-    const first = nodes[0];
-    indicatorGroupInfo = { parent: first.parentNode, next: first.nextSibling };
-
-    first.parentNode.insertBefore(indicatorGroup, first);
-    nodes.forEach(n => indicatorGroup.appendChild(n));
-  }
-
-  function ungroupIndicators() {
-    if (!indicatorGroup || !indicatorGroupInfo) return;
-    const parent = indicatorGroupInfo.parent;
-    const before = indicatorGroupInfo.next;
-
-    const kids = Array.from(indicatorGroup.children);
-    kids.forEach(k => {
-      if (before && before.parentNode === parent) parent.insertBefore(k, before);
-      else parent.appendChild(k);
-    });
-
-    indicatorGroup.remove();
-    indicatorGroup = null;
-    indicatorGroupInfo = null;
-  }
-
-  function startSlides() {
-    stopSlides();
-    slideIdx = 0;
+  function scrollToSlide(idx) {
     const targets = getSlideTargets();
-    if (targets.length) scrollToTarget(targets[0]);
+    if (!targets.length) return;
+    const i = ((idx % targets.length) + targets.length) % targets.length;
+    slideIndex = i;
+    targets[i].scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 
-    timer = setInterval(() => {
-      if (!active || paused) return;
-      const t = getSlideTargets();
-      if (!t.length) return;
-      slideIdx = (slideIdx + 1) % t.length;
-      scrollToTarget(t[slideIdx]);
+  function scheduleNextSlide() {
+    if (!active || paused) return;
+    if (slideTimer) clearTimeout(slideTimer);
+    slideTimer = setTimeout(() => {
+      scrollToSlide(slideIndex + 1);
+      scheduleNextSlide();
     }, SLIDE_MS);
   }
 
-  function stopSlides() {
-    if (timer) {
-      clearInterval(timer);
-      timer = null;
-    }
-  }
-
-  function next() {
-    const t = getSlideTargets();
-    if (!t.length) return;
-    slideIdx = (slideIdx + 1) % t.length;
-    scrollToTarget(t[slideIdx]);
-  }
-
-  function prev() {
-    const t = getSlideTargets();
-    if (!t.length) return;
-    slideIdx = (slideIdx - 1 + t.length) % t.length;
-    scrollToTarget(t[slideIdx]);
-  }
-
-  function togglePause() {
-    paused = !paused;
-  }
-
-  async function enter() {
+  function enter() {
     if (active) return;
-
-    const viewPres = document.getElementById('view-presentation');
-    const mapSlot = document.getElementById('presentation-map-slot');
-    const panelSlot = document.getElementById('presentation-panel-slot');
-    const rightSlot = document.getElementById('presentation-slide-stage');
-
-    if (!viewPres || !mapSlot || !panelSlot || !rightSlot) {
-      console.warn('Brak widoku prezentacji w index.html (#view-presentation + sloty).');
-      return;
-    }
-
     active = true;
     paused = false;
-    setPresentationMode(true);
+    slideIndex = 0;
 
-    // przenieś mapę i panel (tylko te dwa elementy)
-    rememberAndMove(document.getElementById('map'), mapSlot);
-    rememberAndMove(document.getElementById('sonde-panel'), panelSlot);
+    document.body.classList.add('presentation-mode');
 
-    // prawa strona: pokaż dane graficzne (bez przenoszenia DOM wykresów)
-    // po prostu przewijamy istniejący kontener
-    groupIndicators();
-    invalidateLeafletAndCharts();
-
-    // fullscreen (opcjonalnie)
-    if (!document.fullscreenElement) {
-      try { await document.documentElement.requestFullscreen(); } catch (e) {}
-    }
+    ensureIndicatorGroupInPresentation();
+    scrollToSlide(0);
 
     startTelemetryAutoScroll();
-    startSlides();
+    scheduleNextSlide();
+
+    const charts = qs('#view-charts');
+    if (charts && !qs('.presentation-hint', charts)) {
+      const hint = document.createElement('div');
+      hint.className = 'presentation-hint';
+      hint.textContent = 'pauza: spacja • slajd: ←/→ • esc: wyjście';
+      charts.appendChild(hint);
+    }
   }
 
   function exit() {
     if (!active) return;
     active = false;
-    stopSlides();
-    stopTelemetryAutoScroll();
+    paused = false;
 
-    ungroupIndicators();
-    restoreAll();
-    setPresentationMode(false);
-    invalidateLeafletAndCharts();
+    stopTimers();
+    restoreIndicators();
+    document.body.classList.remove('presentation-mode');
 
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
+    const charts = qs('#view-charts');
+    const hint = charts ? qs('.presentation-hint', charts) : null;
+    if (hint) hint.remove();
+  }
+
+  function togglePause() {
+    if (!active) return;
+    paused = !paused;
+    if (!paused) {
+      startTelemetryAutoScroll();
+      scheduleNextSlide();
+    } else {
+      stopTimers();
     }
   }
 
-  function bind() {
-    document.getElementById('btn-present')?.addEventListener('click', () => (active ? exit() : enter()));
+  function next() {
+    if (!active) return;
+    scrollToSlide(slideIndex + 1);
+    if (!paused) scheduleNextSlide();
+  }
 
-    document.addEventListener('fullscreenchange', () => {
-      if (!document.fullscreenElement && active) exit();
-    });
+  function prev() {
+    if (!active) return;
+    scrollToSlide(slideIndex - 1);
+    if (!paused) scheduleNextSlide();
+  }
+
+  function bind() {
+    const btn = qs('#btn-present');
+    if (btn) btn.addEventListener('click', () => (active ? exit() : enter()));
 
     document.addEventListener('keydown', (e) => {
       if (!active) return;
-
       const tag = (document.activeElement && document.activeElement.tagName || '').toLowerCase();
       if (tag === 'input' || tag === 'textarea') return;
 
-      if (e.code === 'Space') {
-        e.preventDefault();
-        togglePause();
-      } else if (e.code === 'ArrowRight') {
-        e.preventDefault();
-        next();
-      } else if (e.code === 'ArrowLeft') {
-        e.preventDefault();
-        prev();
-      } else if (e.code === 'Escape') {
-        e.preventDefault();
-        exit();
-      }
+      if (e.code === 'Space') { e.preventDefault(); togglePause(); }
+      else if (e.code === 'ArrowRight') { e.preventDefault(); next(); }
+      else if (e.code === 'ArrowLeft') { e.preventDefault(); prev(); }
+      else if (e.code === 'Escape') { e.preventDefault(); exit(); }
     });
   }
 
