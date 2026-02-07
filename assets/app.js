@@ -2649,6 +2649,12 @@
   }
 
   function renderVisibilityCard(s) {
+    // Anti-dup: zostaw tylko jedną kartę widzialności
+    const visAll = Array.from(document.querySelectorAll('.visibility-card'));
+    if (visAll.length > 1) {
+      visAll.slice(1).forEach(n => n.remove());
+    }
+
     const chartsView = document.getElementById('view-charts');
     if (!chartsView) return;
 
@@ -3057,11 +3063,15 @@
     if (stabCard) indicators.push(stabCard);
 
     // 2) CAPE/CIN: karta pod id
-    const capeCard = document.getElementById('cape-cin-card');
+    const capeCards = Array.from(document.querySelectorAll('#cape-cin-card'));
+    if (capeCards.length > 1) capeCards.slice(1).forEach(n => n.remove());
+    const capeCard = capeCards[0] || document.getElementById('cape-cin-card');
     if (capeCard) indicators.push(capeCard);
 
     // 3) Widzialność: karta z klasą visibility-card (z Twojego kodu)
-    const visCard = document.querySelector('.visibility-card') || document.getElementById('visibility-card');
+    const visCards = Array.from(document.querySelectorAll('.visibility-card'));
+    if (visCards.length > 1) visCards.slice(1).forEach(n => n.remove());
+    const visCard = visCards[0] || document.getElementById('visibility-card');
     if (visCard) indicators.push(visCard);
 
     // Usuń duplikaty (na wypadek jakby któryś selector wskazał to samo)
