@@ -657,34 +657,41 @@ body {
   margin-top: 12px;
 }
 
-/* ===== TRYB PREZENTACJI SPLIT =====
-   Bez fixed/sticky/absolute: to normalny widok (.view) w main-layout.
-*/
+
+/* ===== TRYB PREZENTACJI SPLIT SAFE ===== */
+body.presentation-mode .topbar,
+body.presentation-mode .status-line {
+  display: none !important;
+}
+
+/* w trybie prezentacji pokazujemy specjalny widok oraz utrzymujemy wykresy po prawej */
+body.presentation-mode #view-presentation {
+  display: block !important;
+}
+
+body.presentation-mode #view-charts {
+  display: block !important;
+}
+
+/* ale chowamy widok telemetrii (bo mapa+panel są przeniesione do prezentacji) */
+body.presentation-mode #view-telemetry {
+  display: none !important;
+}
+
 .view-presentation {
   padding: 0;
 }
 
 .presentation-split {
-  height: calc(100vh - 64px); /* bez topbara */
+  height: 100vh;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
-  padding: 10px 12px 12px;
+  padding: 12px;
   min-height: 0;
 }
 
-body.presentation-mode .topbar,
-body.presentation-mode .status-line,
-body.presentation-mode #view-telemetry,
-body.presentation-mode #view-charts {
-  display: none !important;
-}
-
-body.presentation-mode #view-presentation {
-  display: grid !important;
-}
-
-/* Lewa strona: mapa + dane */
+/* lewa kolumna */
 .presentation-left {
   display: flex;
   flex-direction: column;
@@ -693,74 +700,62 @@ body.presentation-mode #view-presentation {
 }
 
 .presentation-map-slot {
-  flex: 1 1 auto;
+  flex: 1 1 55%;
   min-height: 0;
   border-radius: 18px;
   overflow: hidden;
   box-shadow: 0 18px 40px rgba(0,0,0,0.55);
 }
 
-.presentation-info-slot {
-  flex: 0 0 42%;
-  min-height: 0;
-  display: grid;
-  grid-template-rows: auto 1fr;
-  gap: 12px;
-}
-
-.presentation-sondes-slot .card,
-.presentation-panel-slot .card {
-  margin: 0;
-}
-
 .presentation-panel-slot {
+  flex: 1 1 45%;
   min-height: 0;
   overflow: auto;
+  border-radius: 18px;
+  box-shadow: 0 18px 40px rgba(0,0,0,0.55);
 }
 
-/* Prawa strona: slajdy */
+/* prawa kolumna: pokazujemy istniejący #view-charts obok */
 .presentation-right {
-  display: flex;
-  flex-direction: column;
   min-height: 0;
-  gap: 10px;
-}
-
-.presentation-slide-stage {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  border-radius: 18px;
   overflow: hidden;
+  box-shadow: 0 18px 40px rgba(0,0,0,0.55);
+  background: rgba(6, 10, 22, 0.72);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
 }
 
-.presentation-slide-stage .card {
-  flex: 1 1 auto;
-  min-height: 0;
-}
-
-.presentation-hint {
+.presentation-right .presentation-hint {
   font-size: 11px;
   color: #8a94b0;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   text-align: right;
+  margin-top: auto;
 }
 
-/* Wskaźniki razem: trzy karty jedna pod drugą */
-.presentation-indicators-stack {
+/* Ustaw wykresy w prawej kolumnie: wykorzystaj istniejący kontener scroll */
+body.presentation-mode #view-charts {
+  margin: 0 !important;
+  padding: 0 !important;
+  height: 100%;
+}
+
+body.presentation-mode #view-charts .charts-scroll {
+  height: calc(100vh - 24px);
+  overflow: auto;
+}
+
+/* Grupowanie wskaźników w jeden "slajd" */
+.presentation-indicator-group {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  min-height: 0;
-  overflow: hidden;
-}
-.presentation-indicators-stack > .card {
-  flex: 1 1 auto;
-  min-height: 0;
 }
 
-
-/* W trybie prezentacji nie pokazuj listy aktywnych radiosond */
-body.presentation-mode .sonde-list-card { display: none !important; }
+/* W trybie prezentacji nie pokazuj listy aktywnych radiosond, jeśli masz taką kartę */
+body.presentation-mode .sonde-list-card {
+  display: none !important;
+}
