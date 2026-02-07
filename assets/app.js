@@ -2698,7 +2698,7 @@
 
     // Ustaw jako zwykla karte na koncu listy wykresow (tak jak CAPE/CIN).
     // To gwarantuje: brak zaslaniania innych wykresow i brak sztucznego odstepu.
-        // Wstaw wskaźnik widzialności NAD kartą Skew‑T (najstabilniejsze miejsce)
+     // Wstaw wskaźnik widzialności NAD kartą Skew‑T (najstabilniejsze miejsce)
     const skewCard = grid.querySelector('.skewt-card');
     if (skewCard) {
       grid.insertBefore(card, skewCard);
@@ -2988,14 +2988,13 @@
 })();
 
 
-/* === PRESENTATION_MODE_SPLIT_50_50_SINGLE ===
-   - Split 50/50: lewa (Telemetria: mapa + panel danych), prawa (pojedynczy slajd = 1 karta na raz)
-   - Lewa: dane w #sonde-panel mają auto-scroll (powoli)
-   - Prawa: pokazuje tylko jedną kartę z #view-charts .charts-scroll naraz (bez mini-mapy)
-   - W prezentacji: wskaźniki (Stabilność + CAPE/CIN + Widzialność) traktuj jako JEDEN slajd (wrapper)
-   Sterowanie: Space pauza, ←/→ slajd, ESC wyjście
+/* === PRESENTATION_MODE_V1_SAFE ===
+   - Nie rusza zakładki "Dane graficzne" w normalnym trybie.
+   - W prezentacji: split 50/50 (CSS) + prawa strona pokazuje 1 kartę wykresu naraz (slajd).
+   - Lewa: pokazuj mapę + kartę z #sonde-panel, a dane w #sonde-panel przewijaj powoli.
+   - 3 wskaźniki (Stabilność + CAPE/CIN + Widzialność) jako jeden slajd tylko w prezentacji (wrapper).
 */
-(function () {
+(() => {
   const SLIDE_MS = 10000;
   const TELE_MS = 50;   // ~20px/s
   const TELE_STEP = 1;
@@ -3006,23 +3005,50 @@
   let teleTimer = null;
   let slideIndex = 0;
 
-  // zapamiętaj oryginalne pozycje 3 kart wskaźników (na czas prezentacji)
+  // wrapper wskaźników
   let indicatorState = null;
 
   const qs = (s, r=document) => r.querySelector(s);
   const qsa = (s, r=document) => Array.from(r.querySelectorAll(s));
 
-  function chartsGrid() {
-    return qs('#view-charts .charts-scroll');
-  }
-
-  function telemetryPanel() {
-    return qs('#sonde-panel');
-  }
+  const chartsGrid = () => qs('#view-charts .charts-scroll');
+  const telemetryPanel = () => qs('#sonde-panel');
 
   function stopTimers() {
     if (slideTimer) { clearTimeout(slideTimer); slideTimer = null; }
     if (teleTimer) { clearInterval(teleTimer); teleTimer = null; }
+  }
+
+  function markTelemetryKeepCard() {
+    const panel = telemetryPanel();
+    if (!panel) return;
+    const card = panel.closest('.card');
+    if (card) card.classList.add('presentation-keep');
+  }
+
+  function unmarkTelemetryKeepCard() {
+    const panel = telemetryPanel();
+    if (!panel) return;
+    const card = panel.closest('.card');
+    if (card) card.classList.remove('presentation-keep');
+  }
+
+  function markSkippedCards() {
+    const grid = chartsGrid();
+    if (!grid) return;
+    // mini-mapa
+    const miniCard = grid.querySelector(':scope > .card:has(#mini-map)');
+    if (miniCard) miniCard.classList.add('presentation-skip');
+    // jeśli przeglądarka nie wspiera :has, spróbuj po query wewnętrznym
+    qsa(':scope > .card', grid).forEach(card => {
+      if (card.querySelector && card.querySelector('#mini-map')) card.classList.add('presentation-skip');
+    });
+  }
+
+  function unmarkSkippedCards() {
+    const grid = chartsGrid();
+    if (!grid) return;
+    qsa(':scope > .card.presentation-skip', grid).forEach(c => c.classList.remove('presentation-skip'));
   }
 
   function startTelemetryAutoScroll() {
@@ -3042,21 +3068,18 @@
   function indicatorCards() {
     const stab = qs('#chart-stability')?.closest('.card') || null;
     const cape = qs('#cape-cin-card') || null;
-    const vis = qs('.visibility-card') || qs('#visibility-card') || null;
+    const vis  = qs('.visibility-card') || qs('#visibility-card') || null;
     return [stab, cape, vis].filter(Boolean);
   }
 
   function ensureIndicatorWrapper() {
     const grid = chartsGrid();
     if (!grid) return;
-
-    // jeśli już jest wrapper, OK
     if (qs('.presentation-indicator-group', grid)) return;
 
     const cards = indicatorCards();
     if (!cards.length) return;
 
-    // zapamiętaj pozycje
     indicatorState = cards.map(card => ({ card, parent: card.parentNode, next: card.nextSibling }));
 
     const wrap = document.createElement('div');
@@ -3066,6 +3089,7 @@
       <div class="card-body indicator-stack"></div>
     `;
     grid.insertBefore(wrap, cards[0]);
+
     const body = qs('.indicator-stack', wrap);
     cards.forEach(c => body.appendChild(c));
   }
@@ -3077,7 +3101,6 @@
       if (wrap) wrap.remove();
     }
     if (!indicatorState) return;
-
     indicatorState.forEach(({ card, parent, next }) => {
       if (!parent) return;
       if (next && next.parentNode === parent) parent.insertBefore(card, next);
@@ -3089,15 +3112,14 @@
   function slideTargets() {
     const grid = chartsGrid();
     if (!grid) return [];
-    // bierzemy karty bez mini-mapy
-    return qsa(':scope > .card', grid).filter(card => !qs('#mini-map', card));
+    return qsa(':scope > .card', grid).filter(card => !card.classList.contains('presentation-skip'));
   }
 
-  function applyActiveSlide(target) {
+  function setActiveSlide(el) {
     const grid = chartsGrid();
     if (!grid) return;
     qsa(':scope > .card', grid).forEach(c => c.classList.remove('presentation-active-slide'));
-    if (target) target.classList.add('presentation-active-slide');
+    if (el) el.classList.add('presentation-active-slide');
   }
 
   function showSlide(idx) {
@@ -3105,8 +3127,7 @@
     if (!targets.length) return;
     slideIndex = ((idx % targets.length) + targets.length) % targets.length;
     const el = targets[slideIndex];
-    applyActiveSlide(el);
-    // dociągnij do góry, żeby karta była w pełni widoczna
+    setActiveSlide(el);
     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
@@ -3127,14 +3148,15 @@
 
     document.body.classList.add('presentation-mode');
 
-    // W prezentacji chcemy wskaźniki jako jeden slajd
+    markTelemetryKeepCard();
+    markSkippedCards();
+
+    // wskaźniki jako jeden slajd tylko w prezentacji
     ensureIndicatorWrapper();
 
-    // pokaż pierwszy slajd
     showSlide(0);
-
-    startTelemetryAutoScroll();
     scheduleNext();
+    startTelemetryAutoScroll();
   }
 
   function exit() {
@@ -3144,7 +3166,9 @@
 
     stopTimers();
     restoreIndicators();
-    // usuń active-slide klasy
+    unmarkSkippedCards();
+    unmarkTelemetryKeepCard();
+
     const grid = chartsGrid();
     if (grid) qsa(':scope > .card', grid).forEach(c => c.classList.remove('presentation-active-slide'));
 
@@ -3162,7 +3186,8 @@
   function prev() { if (!active) return; showSlide(slideIndex - 1); if (!paused) scheduleNext(); }
 
   function bind() {
-    qs('#btn-present')?.addEventListener('click', () => (active ? exit() : enter()));
+    const btn = qs('#btn-present');
+    if (btn) btn.addEventListener('click', () => (active ? exit() : enter()));
 
     document.addEventListener('keydown', (e) => {
       if (!active) return;
@@ -3179,3 +3204,4 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
   else bind();
 })();
+
