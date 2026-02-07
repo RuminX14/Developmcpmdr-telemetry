@@ -2988,11 +2988,15 @@
 })();
 
 
+
+
+
 /* === PRESENTATION_MODE_V1_SAFE ===
    - Nie rusza zakładki "Dane graficzne" w normalnym trybie.
    - W prezentacji: split 50/50 (CSS) + prawa strona pokazuje 1 kartę wykresu naraz (slajd).
    - Lewa: pokazuj mapę + kartę z #sonde-panel, a dane w #sonde-panel przewijaj powoli.
    - 3 wskaźniki (Stabilność + CAPE/CIN + Widzialność) jako jeden slajd tylko w prezentacji (wrapper).
+   - Włącza ukrywanie elementów dopiero po inicjalizacji (body.presentation-ready), żeby nie było pustego ekranu.
 */
 (() => {
   const SLIDE_MS = 10000;
@@ -3005,7 +3009,6 @@
   let teleTimer = null;
   let slideIndex = 0;
 
-  // wrapper wskaźników
   let indicatorState = null;
 
   const qs = (s, r=document) => r.querySelector(s);
@@ -3021,11 +3024,11 @@
 
   function markTelemetryKeepCard() {
     const panel = telemetryPanel();
-    if (!panel) return;
+    if (!panel) return false;
     const card = panel.closest('.card');
     if (card) card.classList.add('presentation-keep');
+    return !!card;
   }
-
   function unmarkTelemetryKeepCard() {
     const panel = telemetryPanel();
     if (!panel) return;
@@ -3035,16 +3038,12 @@
 
   function markSkippedCards() {
     const grid = chartsGrid();
-    if (!grid) return;
-    // mini-mapa
-    const miniCard = grid.querySelector(':scope > .card:has(#mini-map)');
-    if (miniCard) miniCard.classList.add('presentation-skip');
-    // jeśli przeglądarka nie wspiera :has, spróbuj po query wewnętrznym
+    if (!grid) return false;
     qsa(':scope > .card', grid).forEach(card => {
       if (card.querySelector && card.querySelector('#mini-map')) card.classList.add('presentation-skip');
     });
+    return true;
   }
-
   function unmarkSkippedCards() {
     const grid = chartsGrid();
     if (!grid) return;
@@ -3074,11 +3073,11 @@
 
   function ensureIndicatorWrapper() {
     const grid = chartsGrid();
-    if (!grid) return;
-    if (qs('.presentation-indicator-group', grid)) return;
+    if (!grid) return false;
+    if (qs('.presentation-indicator-group', grid)) return true;
 
     const cards = indicatorCards();
-    if (!cards.length) return;
+    if (!cards.length) return true; // brak wskaźników to nie błąd
 
     indicatorState = cards.map(card => ({ card, parent: card.parentNode, next: card.nextSibling }));
 
@@ -3092,6 +3091,7 @@
 
     const body = qs('.indicator-stack', wrap);
     cards.forEach(c => body.appendChild(c));
+    return true;
   }
 
   function restoreIndicators() {
@@ -3124,11 +3124,12 @@
 
   function showSlide(idx) {
     const targets = slideTargets();
-    if (!targets.length) return;
+    if (!targets.length) return false;
     slideIndex = ((idx % targets.length) + targets.length) % targets.length;
     const el = targets[slideIndex];
     setActiveSlide(el);
     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return true;
   }
 
   function scheduleNext() {
@@ -3140,6 +3141,49 @@
     }, SLIDE_MS);
   }
 
+  function setReady(on) {
+    document.body.classList.toggle('presentation-ready', !!on);
+  }
+
+  function initWithRetry(deadlineMs = 2000) {
+    const t0 = performance.now();
+
+    const tick = () => {
+      if (!active) return;
+
+      const okGrid = !!chartsGrid();
+      const okTele = !!telemetryPanel();
+
+      // czekamy aż kluczowe elementy DOM będą istnieć
+      if (!okGrid || !okTele) {
+        if (performance.now() - t0 < deadlineMs) {
+          requestAnimationFrame(tick);
+        } else {
+          // fallback: nie chowaj nic, żeby nie było pustego ekranu
+          setReady(false);
+        }
+        return;
+      }
+
+      // przygotowanie
+      markTelemetryKeepCard();
+      markSkippedCards();
+      ensureIndicatorWrapper();
+
+      // dopiero teraz aktywuj tryb "ukrywania" i slajdy
+      setReady(true);
+
+      // start slajdów
+      const okSlide = showSlide(0);
+      if (!okSlide) setReady(false);
+
+      startTelemetryAutoScroll();
+      scheduleNext();
+    };
+
+    requestAnimationFrame(tick);
+  }
+
   function enter() {
     if (active) return;
     active = true;
@@ -3147,16 +3191,9 @@
     slideIndex = 0;
 
     document.body.classList.add('presentation-mode');
+    setReady(false);
 
-    markTelemetryKeepCard();
-    markSkippedCards();
-
-    // wskaźniki jako jeden slajd tylko w prezentacji
-    ensureIndicatorWrapper();
-
-    showSlide(0);
-    scheduleNext();
-    startTelemetryAutoScroll();
+    initWithRetry();
   }
 
   function exit() {
@@ -3173,6 +3210,7 @@
     if (grid) qsa(':scope > .card', grid).forEach(c => c.classList.remove('presentation-active-slide'));
 
     document.body.classList.remove('presentation-mode');
+    setReady(false);
   }
 
   function togglePause() {
@@ -3204,4 +3242,5 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
   else bind();
 })();
+
 
