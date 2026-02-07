@@ -95,7 +95,7 @@
         <button id="btn-pdf" class="btn primary">
           Raport PDF
         </button>
-        <button id="btn-present" class="btn ghost" title="Tryb prezentacji (podział 50/50 + slajdy)">🎥 Prezentuj</button>
+        <button id="btn-present" class="btn ghost" title="Tryb prezentacji (split 50/50)">🎥 Prezentuj</button>
         <div class="lang">
           <button class="btn ghost small" data-lang="pl">PL</button>
           <button class="btn ghost small" data-lang="en">EN</button>
@@ -322,21 +322,17 @@
 
         </div>
       </section>
-      <!-- Presentation view (split 50/50: Telemetry left + Charts slideshow right) -->
+      <!-- Presentation view (split 50/50: left map+telemetry, right charts slideshow) -->
       <section id="view-presentation" class="view view-presentation">
         <div class="presentation-split">
           <div class="presentation-left">
             <div class="presentation-map-slot" id="presentation-map-slot"></div>
-            <div class="presentation-info-slot">
-              <div class="presentation-sondes-slot" id="presentation-sondes-slot"></div>
-              <div class="presentation-panel-slot" id="presentation-panel-slot"></div>
-            </div>
+            <div class="presentation-panel-slot" id="presentation-panel-slot"></div>
           </div>
-
           <div class="presentation-right">
-            <div class="presentation-slide-stage" id="presentation-slide-stage"></div>
+            <!-- prawa strona korzysta z istniejących wykresów w #view-charts; tu tylko placeholder na podpowiedź -->
             <div class="presentation-hint">
-              <span>␣ pauza • ←/→ slajd • ESC wyjście</span>
+              ␣ pauza • ←/→ slajd • ESC wyjście
             </div>
           </div>
         </div>
