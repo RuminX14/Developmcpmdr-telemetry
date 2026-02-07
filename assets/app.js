@@ -290,7 +290,7 @@
       offset: [10, 0]
     });
 
-    const kick = () => { state.map.invalidateSize(false); };
+    const kick = () => { map.invalidateSize(false); };
     requestAnimationFrame(kick);
     setTimeout(kick, 250);
     setTimeout(kick, 1000);
@@ -319,7 +319,7 @@
         if (view === 'telemetry') {
           $('#view-telemetry').classList.add('show');
           $('#view-charts').classList.remove('show');
-          setTimeout(() => state.map && state.state.map.invalidateSize(), 120);
+          setTimeout(() => state.map && state.map.invalidateSize(), 120);
         } else {
           $('#view-telemetry').classList.remove('show');
           $('#view-charts').classList.add('show');
@@ -2649,12 +2649,6 @@
   }
 
   function renderVisibilityCard(s) {
-    // Anti-dup: zostaw tylko jedną kartę widzialności
-    const visAll = Array.from(document.querySelectorAll('.visibility-card'));
-    if (visAll.length > 1) {
-      visAll.slice(1).forEach(n => n.remove());
-    }
-
     const chartsView = document.getElementById('view-charts');
     if (!chartsView) return;
 
@@ -2993,32 +2987,34 @@
   });
 })();
 
+
 /* =========================================================
-   TRYB PREZENTACJI SPLIT 50/50
-   - Lewa: duża mapa + dane telemetryczne LIVE
-   - Prawa: slajdy z kartami wykresów (bez mini-mapy)
-   - Wskaźniki (Stabilność + CAPE/CIN + Widzialność) razem jako jeden slajd (3 karty naraz)
-   - Bez fixed/sticky/absolute: używa osobnego widoku #view-presentation
+   TRYB PREZENTACJI SPLIT (BEZ PSUCIA LOGIKI)
+   - Lewa: mapa + panel telemetryczny LIVE
+   - Prawa: zakładka "Dane graficzne" przewijana jako slajdy (scrollIntoView)
+   - Wskaźniki (Stabilność + CAPE/CIN + Widzialność) grupowane TYLKO na czas prezentacji
+   - Nie przenosi kart wykresów poza ich kontener (eliminuje duplikaty)
    ========================================================= */
 (function () {
   let active = false;
   let timer = null;
-  let slideIndex = 0;
   let paused = false;
+  let slideIdx = 0;
   let telemetryScrollTimer = null;
 
   const SLIDE_MS = 10000;
+  const TELEMETRY_SCROLL_STEP = 1;   // px
+  const TELEMETRY_SCROLL_INTERVAL = 50; // ms (~20px/s)
 
-  // zapamiętanie oryginalnych miejsc w DOM (żeby wszystko wróciło 1:1)
+  // zapamiętanie DOM, żeby wszystko wróciło
   const moved = new Map();
+  let indicatorGroup = null;
+  let indicatorGroupInfo = null;
 
-  function rememberAndMove(el, newParent, before = null) {
+  function rememberAndMove(el, newParent) {
     if (!el || !newParent) return;
-    if (!moved.has(el)) {
-      moved.set(el, { parent: el.parentNode, next: el.nextSibling });
-    }
-    if (before) newParent.insertBefore(el, before);
-    else newParent.appendChild(el);
+    if (!moved.has(el)) moved.set(el, { parent: el.parentNode, next: el.nextSibling });
+    newParent.appendChild(el);
   }
 
   function restoreAll() {
@@ -3030,65 +3026,20 @@
     moved.clear();
   }
 
-  function showOnlyPresentationView() {
-    document.body.classList.add('presentation-mode');
+  function setPresentationMode(on) {
+    document.body.classList.toggle('presentation-mode', !!on);
   }
 
-  function hidePresentationView() {
-    document.body.classList.remove('presentation-mode');
-  }
-
-  function invalidateLeafletAndCharts() {
-    try { (state && state.map) && state.map.invalidateSize && state.state.map.invalidateSize(); } catch (e) {}
-    // Chart.js: spróbuj wywołać resize na znanych instancjach (bez grzebania w renderach)
-    try {
-      if (state && state.charts) {
-        Object.values(state.charts).forEach((ch) => { try { ch && ch.resize && ch.resize(); } catch (e) {} });
-      }
-    } catch (e) {}
-  }
-
-  function getChartsCardsExcludingMiniMap() {
-    const grid = document.querySelector('#view-charts .charts-scroll');
-    if (!grid) return [];
-    const cards = Array.from(grid.querySelectorAll(':scope > .card'));
-    return cards.filter(card => !card.querySelector('#mini-map'));
-  }
-
-  function getIndicatorCards() {
-    const indicators = [];
-
-    // 1) Stabilność: karta z wykresem stabilności (jeśli istnieje)
-    const stabCard = document.querySelector('#chart-stability')?.closest('.card');
-    if (stabCard) indicators.push(stabCard);
-
-    // 2) CAPE/CIN: karta pod id
-    const capeCards = Array.from(document.querySelectorAll('#cape-cin-card'));
-    if (capeCards.length > 1) capeCards.slice(1).forEach(n => n.remove());
-    const capeCard = capeCards[0] || document.getElementById('cape-cin-card');
-    if (capeCard) indicators.push(capeCard);
-
-    // 3) Widzialność: karta z klasą visibility-card (z Twojego kodu)
-    const visCards = Array.from(document.querySelectorAll('.visibility-card'));
-    if (visCards.length > 1) visCards.slice(1).forEach(n => n.remove());
-    const visCard = visCards[0] || document.getElementById('visibility-card');
-    if (visCard) indicators.push(visCard);
-
-    // Usuń duplikaty (na wypadek jakby któryś selector wskazał to samo)
-    return Array.from(new Set(indicators));
-  })();
   function startTelemetryAutoScroll() {
     stopTelemetryAutoScroll();
     const panel = document.getElementById('presentation-panel-slot');
     if (!panel) return;
-
     telemetryScrollTimer = setInterval(() => {
       if (!active || paused) return;
-      // Powolne przewijanie w dół; po dojściu do końca wróć na górę
-      panel.scrollTop += 1;
+      panel.scrollTop += TELEMETRY_SCROLL_STEP;
       const max = panel.scrollHeight - panel.clientHeight;
       if (max > 0 && panel.scrollTop >= max) panel.scrollTop = 0;
-    }, 50); // 20px/s
+    }, TELEMETRY_SCROLL_INTERVAL);
   }
 
   function stopTelemetryAutoScroll() {
@@ -3098,4 +3049,195 @@
     }
   }
 
+  function invalidateLeafletAndCharts() {
+    try { state?.map?.invalidateSize?.(); } catch (e) {}
+    try {
+      if (state && state.charts) {
+        Object.values(state.charts).forEach(ch => { try { ch?.resize?.(); } catch (e) {} });
+      }
+    } catch (e) {}
+  }
 
+  function getChartsGrid() {
+    return document.querySelector('#view-charts .charts-scroll');
+  }
+
+  function getSlideTargets() {
+    const grid = getChartsGrid();
+    if (!grid) return [];
+    // slajdy = bezpośrednie dzieci: karty + ewentualnie grupa wskaźników
+    return Array.from(grid.children).filter(el => {
+      if (el.classList?.contains('presentation-indicator-group')) return true;
+      if (el.classList?.contains('card')) return true;
+      return false;
+    });
+  }
+
+  function scrollToTarget(el) {
+    el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function groupIndicators() {
+    const grid = getChartsGrid();
+    if (!grid) return;
+
+    const stab = document.querySelector('#chart-stability')?.closest('.card');
+    const cape = document.getElementById('cape-cin-card');
+    const vis  = document.querySelector('.visibility-card') || document.getElementById('visibility-card');
+
+    const nodes = [stab, cape, vis].filter(Boolean);
+    if (nodes.length < 2) return; // nie ma co grupować
+
+    // jeśli już zgrupowane, wyjdź
+    if (grid.querySelector('.presentation-indicator-group')) return;
+
+    indicatorGroup = document.createElement('div');
+    indicatorGroup.className = 'presentation-indicator-group';
+
+    // zapamiętaj miejsce wstawienia (przed pierwszym wskaźnikiem)
+    const first = nodes[0];
+    indicatorGroupInfo = { parent: first.parentNode, next: first.nextSibling };
+
+    first.parentNode.insertBefore(indicatorGroup, first);
+    nodes.forEach(n => indicatorGroup.appendChild(n));
+  }
+
+  function ungroupIndicators() {
+    if (!indicatorGroup || !indicatorGroupInfo) return;
+    const parent = indicatorGroupInfo.parent;
+    const before = indicatorGroupInfo.next;
+
+    const kids = Array.from(indicatorGroup.children);
+    kids.forEach(k => {
+      if (before && before.parentNode === parent) parent.insertBefore(k, before);
+      else parent.appendChild(k);
+    });
+
+    indicatorGroup.remove();
+    indicatorGroup = null;
+    indicatorGroupInfo = null;
+  }
+
+  function startSlides() {
+    stopSlides();
+    slideIdx = 0;
+    const targets = getSlideTargets();
+    if (targets.length) scrollToTarget(targets[0]);
+
+    timer = setInterval(() => {
+      if (!active || paused) return;
+      const t = getSlideTargets();
+      if (!t.length) return;
+      slideIdx = (slideIdx + 1) % t.length;
+      scrollToTarget(t[slideIdx]);
+    }, SLIDE_MS);
+  }
+
+  function stopSlides() {
+    if (timer) {
+      clearInterval(timer);
+      timer = null;
+    }
+  }
+
+  function next() {
+    const t = getSlideTargets();
+    if (!t.length) return;
+    slideIdx = (slideIdx + 1) % t.length;
+    scrollToTarget(t[slideIdx]);
+  }
+
+  function prev() {
+    const t = getSlideTargets();
+    if (!t.length) return;
+    slideIdx = (slideIdx - 1 + t.length) % t.length;
+    scrollToTarget(t[slideIdx]);
+  }
+
+  function togglePause() {
+    paused = !paused;
+  }
+
+  async function enter() {
+    if (active) return;
+
+    const viewPres = document.getElementById('view-presentation');
+    const mapSlot = document.getElementById('presentation-map-slot');
+    const panelSlot = document.getElementById('presentation-panel-slot');
+    const rightSlot = document.getElementById('presentation-slide-stage');
+
+    if (!viewPres || !mapSlot || !panelSlot || !rightSlot) {
+      console.warn('Brak widoku prezentacji w index.html (#view-presentation + sloty).');
+      return;
+    }
+
+    active = true;
+    paused = false;
+    setPresentationMode(true);
+
+    // przenieś mapę i panel (tylko te dwa elementy)
+    rememberAndMove(document.getElementById('map'), mapSlot);
+    rememberAndMove(document.getElementById('sonde-panel'), panelSlot);
+
+    // prawa strona: pokaż dane graficzne (bez przenoszenia DOM wykresów)
+    // po prostu przewijamy istniejący kontener
+    groupIndicators();
+    invalidateLeafletAndCharts();
+
+    // fullscreen (opcjonalnie)
+    if (!document.fullscreenElement) {
+      try { await document.documentElement.requestFullscreen(); } catch (e) {}
+    }
+
+    startTelemetryAutoScroll();
+    startSlides();
+  }
+
+  function exit() {
+    if (!active) return;
+    active = false;
+    stopSlides();
+    stopTelemetryAutoScroll();
+
+    ungroupIndicators();
+    restoreAll();
+    setPresentationMode(false);
+    invalidateLeafletAndCharts();
+
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+  }
+
+  function bind() {
+    document.getElementById('btn-present')?.addEventListener('click', () => (active ? exit() : enter()));
+
+    document.addEventListener('fullscreenchange', () => {
+      if (!document.fullscreenElement && active) exit();
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (!active) return;
+
+      const tag = (document.activeElement && document.activeElement.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea') return;
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        togglePause();
+      } else if (e.code === 'ArrowRight') {
+        e.preventDefault();
+        next();
+      } else if (e.code === 'ArrowLeft') {
+        e.preventDefault();
+        prev();
+      } else if (e.code === 'Escape') {
+        e.preventDefault();
+        exit();
+      }
+    });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
+  else bind();
+})();
