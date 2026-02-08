@@ -3248,6 +3248,11 @@
 
       const qs = (s, r=document) => r.querySelector(s);
 
+function invalidateLeaflet() {
+  try { if (typeof map !== 'undefined' && map && map.invalidateSize) map.invalidateSize(true); } catch(e) {}
+  try { if (typeof miniMap !== 'undefined' && miniMap && miniMap.invalidateSize) miniMap.invalidateSize(true); } catch(e) {}
+}
+
       function getPanel() {
         // Najczęściej: #sonde-panel. Jeśli u Ciebie inny kontener, to tu jedyna linia do zmiany.
         return qs('#sonde-panel') || qs('#view-telemetry .telemetry-scroll') || qs('#view-telemetry');
@@ -3274,9 +3279,15 @@
       }
 
       function sync() {
-        if (document.body.classList.contains('presentation-mode')) start();
-        else stop();
-      }
+  if (document.body.classList.contains('presentation-mode')) {
+    start();
+    // Leaflet po zmianie rozmiaru kontenera potrzebuje invalidateSize
+    setTimeout(invalidateLeaflet, 150);
+    setTimeout(invalidateLeaflet, 800);
+  } else {
+    stop();
+  }
+}
 
       // Reaguj na wejście/wyjście z prezentacji
       const obs = new MutationObserver(sync);
