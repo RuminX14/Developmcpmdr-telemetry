@@ -3248,6 +3248,22 @@
 
       const qs = (s, r=document) => r.querySelector(s);
 
+function resizeAllCharts() {
+  try {
+    // Prefer app state charts if exists
+    if (typeof state !== 'undefined' && state && state.charts) {
+      Object.values(state.charts).forEach(ch => { try { ch && ch.resize && ch.resize(); } catch(e){} });
+    }
+  } catch(e) {}
+  try {
+    // Fallback: Chart.js global instances
+    if (typeof Chart !== 'undefined' && Chart && Chart.instances) {
+      const vals = Array.isArray(Chart.instances) ? Chart.instances : Object.values(Chart.instances);
+      vals.forEach(ch => { try { ch && ch.resize && ch.resize(); } catch(e){} });
+    }
+  } catch(e) {}
+}
+
 function invalidateLeaflet() {
   try { if (typeof map !== 'undefined' && map && map.invalidateSize) map.invalidateSize(true); } catch(e) {}
   try { if (typeof miniMap !== 'undefined' && miniMap && miniMap.invalidateSize) miniMap.invalidateSize(true); } catch(e) {}
@@ -3280,6 +3296,13 @@ function invalidateLeaflet() {
 
       function sync() {
   if (document.body.classList.contains('presentation-mode')) {
+    // Spróbuj wejść w fullscreen (wymaga gestu użytkownika; jeśli się nie uda, ignorujemy)
+    try {
+      const el = document.documentElement;
+      if (el && el.requestFullscreen && !document.fullscreenElement) {
+        el.requestFullscreen().catch(()=>{});
+      }
+    } catch(e) {}
     start();
     // Leaflet po zmianie rozmiaru kontenera potrzebuje invalidateSize
     setTimeout(invalidateLeaflet, 150);
@@ -3292,6 +3315,12 @@ function invalidateLeaflet() {
       // Reaguj na wejście/wyjście z prezentacji
       const obs = new MutationObserver(sync);
       obs.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+
+  window.addEventListener('resize', () => {
+    if (!document.body.classList.contains('presentation-mode')) return;
+    setTimeout(invalidateLeaflet, 120);
+    setTimeout(resizeAllCharts, 180);
+  });
 
       if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', sync);
