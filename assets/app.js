@@ -3366,3 +3366,87 @@ return candidates.find(el => (el.scrollHeight - el.clientHeight > 50)) || root;
         sync();
       }
     })();
+/* === PRESENTATION_SLOW_AUTOSCROLL ===
+   Powolny, automatyczny scroll danych pod mapą
+   DZIAŁA TYLKO w trybie prezentacji (body.presentation-mode)
+   Nie rusza wykresów ani zakładki "Dane graficzne"
+*/
+
+(() => {
+  const SCROLL_INTERVAL = 40; // ms
+  const SCROLL_STEP = 0.5;    // px
+
+  let timer = null;
+
+  const qs = (s, r = document) => r.querySelector(s);
+
+  function findTelemetryPanel() {
+    // Preferowany panel z danymi pod mapą
+    const direct = qs('#sonde-panel');
+    if (direct) return direct;
+
+    const root = qs('#view-telemetry');
+    if (!root) return null;
+
+    // Szukamy przewijalnego kontenera z danymi (pomijamy listę aktywnych radiosond)
+    const candidates = Array.from(root.querySelectorAll('.card, .panel, .telemetry, .scroll, .scroll-y'));
+    for (const el of candidates) {
+      const style = getComputedStyle(el);
+      const canScroll = (style.overflowY === 'auto' || style.overflowY === 'scroll')
+        && (el.scrollHeight - el.clientHeight > 80);
+
+      if (!canScroll) continue;
+
+      const text = (el.textContent || '').toLowerCase();
+      if (text.includes('aktywne radiosond')) continue;
+
+      return el;
+    }
+
+    return null;
+  }
+
+  function startScroll() {
+    if (timer) return;
+
+    const panel = findTelemetryPanel();
+    if (!panel) return;
+
+    timer = setInterval(() => {
+      if (!document.body.classList.contains('presentation-mode')) return;
+
+      const max = panel.scrollHeight - panel.clientHeight;
+      if (max <= 0) return;
+
+      panel.scrollTop += SCROLL_STEP;
+
+      if (panel.scrollTop >= max) {
+        panel.scrollTop = 0;
+      }
+    }, SCROLL_INTERVAL);
+  }
+
+  function stopScroll() {
+    if (!timer) return;
+    clearInterval(timer);
+    timer = null;
+  }
+
+  function sync() {
+    if (document.body.classList.contains('presentation-mode')) {
+      startScroll();
+    } else {
+      stopScroll();
+    }
+  }
+
+  // Obserwuj wejście/wyjście z trybu prezentacji
+  const observer = new MutationObserver(sync);
+  observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', sync);
+  } else {
+    sync();
+  }
+})();
