@@ -824,3 +824,13 @@ body.presentation-mode #view-telemetry #map {
   height: 100%;
   min-height: 0;
 }
+
+
+/* === PRESENTATION_HIDE_ACTIVE_LIST === */
+/* W trybie prezentacji chowamy listę aktywnych radiosond pod mapą (nie jest potrzebna na rzutniku). */
+body.presentation-mode .sonde-list-card,
+body.presentation-mode #sonde-list,
+body.presentation-mode .active-sondes,
+body.presentation-mode .active-sondes-card {
+  display: none !important;
+}
