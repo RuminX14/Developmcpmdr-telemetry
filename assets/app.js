@@ -3269,10 +3269,47 @@ function invalidateLeaflet() {
   try { if (typeof miniMap !== 'undefined' && miniMap && miniMap.invalidateSize) miniMap.invalidateSize(true); } catch(e) {}
 }
 
-      function getPanel() {
+      function hideActiveList() {
+  const root = qs('#view-telemetry');
+  if (!root) return;
+  // Najpierw po klasie/ID (jeśli istnieją)
+  const byClass = root.querySelector('.sonde-list-card, #sonde-list, .active-sondes');
+  if (byClass) {
+    byClass.classList.add('active-sondes-card');
+    return;
+  }
+  // Fallback: znajdź kartę z tytułem "Aktywne radiosondy"
+  const headers = Array.from(root.querySelectorAll('.card, .card-head, h2, h3, h4'));
+  for (const el of headers) {
+    const t = (el.textContent || '').trim().toLowerCase();
+    if (t.includes('aktywne radiosond')) {
+      const card = el.closest('.card') || el;
+      if (card && card.classList) card.classList.add('active-sondes-card');
+      break;
+    }
+  }
+}
+
+function getPanel() {
         // Najczęściej: #sonde-panel. Jeśli u Ciebie inny kontener, to tu jedyna linia do zmiany.
-        return qs('#sonde-panel') || qs('#view-telemetry .telemetry-scroll') || qs('#view-telemetry');
-      }
+        const p = qs('#sonde-panel');
+if (p) return p;
+// Szukaj najbardziej sensownego przewijalnego kontenera w telemetrii (nie całe view-telemetry)
+const root = qs('#view-telemetry');
+if (!root) return null;
+const candidates = Array.from(root.querySelectorAll('.card, .panel, .telemetry, .telemetry-scroll, .scroll, .scroll-y'));
+for (const el of candidates) {
+  const cs = getComputedStyle(el);
+  const canScroll = (cs.overflowY === 'auto' || cs.overflowY === 'scroll') && (el.scrollHeight - el.clientHeight > 50);
+  if (!canScroll) continue;
+  // pomiń listę aktywnych radiosond
+  const txt = (el.textContent || '').toLowerCase();
+  if (txt.includes('aktywne radiosond')) continue;
+  return el;
+}
+// fallback: pierwszy przewijalny element w telemetrii
+return candidates.find(el => (el.scrollHeight - el.clientHeight > 50)) || root;
+}
 
       function start() {
         if (timer) return;
@@ -3303,6 +3340,7 @@ function invalidateLeaflet() {
         el.requestFullscreen().catch(()=>{});
       }
     } catch(e) {}
+    hideActiveList();
     start();
     // Leaflet po zmianie rozmiaru kontenera potrzebuje invalidateSize
     setTimeout(invalidateLeaflet, 150);
