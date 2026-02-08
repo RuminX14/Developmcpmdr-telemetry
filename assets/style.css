@@ -844,3 +844,28 @@ body.presentation-mode #view-charts .presentation-indicator-group .indicator-sta
   flex-direction: column;
   gap: 12px;
 }
+/* === PRESENTATION: prawa połowa = wykres pełną szerokością === */
+body.presentation-mode #view-charts {
+  min-width: 0;
+}
+
+body.presentation-mode #view-charts .charts-scroll {
+  /* żeby karta nie była “wąskim słupkiem” */
+  display: block !important;
+  min-width: 0;
+}
+
+body.presentation-mode #view-charts .charts-scroll > .card {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+}
+
+/* Skew-T i inne wykresy – wymuś pełną szerokość w prezentacji */
+body.presentation-mode #view-charts .skewt-card,
+body.presentation-mode #view-charts .skewt-card canvas,
+body.presentation-mode #view-charts canvas {
+  width: 100% !important;
+  max-width: none !important;
+}
+
