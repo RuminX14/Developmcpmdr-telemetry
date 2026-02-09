@@ -319,7 +319,7 @@
         if (view === 'telemetry') {
           $('#view-telemetry').classList.add('show');
           $('#view-charts').classList.remove('show');
-          setTimeout(() => state.map && state.state.map.invalidateSize(), 120);
+          setTimeout(() => state.map && state.map.invalidateSize(), 120);
         } else {
           $('#view-telemetry').classList.remove('show');
           $('#view-charts').classList.add('show');
@@ -3002,6 +3002,11 @@
 
   const SLIDE_MS = 10000;
 
+// autoscroll telemetrii (dane pod mapą) — tylko w prezentacji
+const TELEMETRY_SCROLL_MS = 40; // ms
+const TELEMETRY_SCROLL_STEP = 0.5; // px
+let telemetryScrollTimer = null;
+
   // zapamiętanie oryginalnych miejsc w DOM (żeby wszystko wróciło 1:1)
   const moved = new Map();
 
@@ -3032,7 +3037,7 @@
   }
 
   function invalidateLeafletAndCharts() {
-    try { (state && state.map) && state.map.invalidateSize && state.state.map.invalidateSize(); } catch (e) {}
+    try { (state && state.map) && state.map.invalidateSize && state.map.invalidateSize(); } catch (e) {}
     // Chart.js: spróbuj wywołać resize na znanych instancjach (bez grzebania w renderach)
     try {
       if (state && state.charts) {
@@ -3143,6 +3148,33 @@
     else stop();
   }
 
+
+function startTelemetryAutoScroll() {
+  stopTelemetryAutoScroll();
+  // przewijamy slot z panelem danych (on ma mieć overflow:auto w CSS; na wszelki wypadek ustawiamy inline)
+  const panelSlot = document.getElementById('presentation-panel-slot');
+  if (!panelSlot) return;
+
+  // upewnij się, że da się przewijać
+  panelSlot.style.overflowY = 'auto';
+  panelSlot.style.maxHeight = '100%';
+  panelSlot.style.minHeight = '0';
+
+  telemetryScrollTimer = setInterval(() => {
+    if (!active) return;
+    const max = panelSlot.scrollHeight - panelSlot.clientHeight;
+    if (max <= 2) return;
+    panelSlot.scrollTop += TELEMETRY_SCROLL_STEP;
+    if (panelSlot.scrollTop >= max) panelSlot.scrollTop = 0;
+  }, TELEMETRY_SCROLL_MS);
+}
+
+function stopTelemetryAutoScroll() {
+  if (!telemetryScrollTimer) return;
+  clearInterval(telemetryScrollTimer);
+  telemetryScrollTimer = null;
+}
+
   async function enter() {
     if (active) return;
     active = true;
@@ -3158,6 +3190,7 @@
       console.warn('Brak #view-presentation lub slotów prezentacji w index.html.');
       hidePresentationView();
       active = false;
+      stopTelemetryAutoScroll();
       return;
     }
 
@@ -3166,6 +3199,8 @@
 
     rememberAndMove(document.getElementById('map'), mapSlot);
     rememberAndMove(document.getElementById('sonde-panel'), panelSlot);
+    // powolny autoscroll danych pod mapą
+    startTelemetryAutoScroll();
     rememberAndMove(document.getElementById('sonde-tabs')?.closest('.card') || document.getElementById('sonde-tabs'), sondesSlot);
 
     // fullscreen (opcjonalnie, jak przeglądarka pozwoli)
@@ -3188,6 +3223,7 @@
     if (!active) return;
     active = false;
     stop();
+    stopTelemetryAutoScroll();
     paused = false;
 
     clearStage(document.getElementById('presentation-slide-stage'));
@@ -3236,316 +3272,3 @@
   else bind();
 })();
 
-
-/* === PRESENTATION_TELEMETRY_AUTOSCROLL_ONLY ===
-       W prezentacji: powolne przewijanie danych telemetrii pod mapą (panel z danymi).
-       Nie dotyka zakładki "Dane graficzne" ani logiki wykresów — tylko scrollTop w prezentacji.
-    */
-    (() => {
-      const SCROLL_MS = 50;   // ~20px/s
-      const STEP = 1;
-      let timer = null;
-
-      const qs = (s, r=document) => r.querySelector(s);
-
-function resizeAllCharts() {
-  try {
-    // Prefer app state charts if exists
-    if (typeof state !== 'undefined' && state && state.charts) {
-      Object.values(state.charts).forEach(ch => { try { ch && ch.resize && ch.resize(); } catch(e){} });
-    }
-  } catch(e) {}
-  try {
-    // Fallback: Chart.js global instances
-    if (typeof Chart !== 'undefined' && Chart && Chart.instances) {
-      const vals = Array.isArray(Chart.instances) ? Chart.instances : Object.values(Chart.instances);
-      vals.forEach(ch => { try { ch && ch.resize && ch.resize(); } catch(e){} });
-    }
-  } catch(e) {}
-}
-
-function invalidateLeaflet() {
-  try { if (typeof map !== 'undefined' && map && map.invalidateSize) map.invalidateSize(true); } catch(e) {}
-  try { if (typeof miniMap !== 'undefined' && miniMap && miniMap.invalidateSize) miniMap.invalidateSize(true); } catch(e) {}
-}
-
-      function hideActiveList() {
-  const root = qs('#view-telemetry');
-  if (!root) return;
-  // Najpierw po klasie/ID (jeśli istnieją)
-  const byClass = root.querySelector('.sonde-list-card, #sonde-list, .active-sondes');
-  if (byClass) {
-    byClass.classList.add('active-sondes-card');
-    return;
-  }
-  // Fallback: znajdź kartę z tytułem "Aktywne radiosondy"
-  const headers = Array.from(root.querySelectorAll('.card, .card-head, h2, h3, h4'));
-  for (const el of headers) {
-    const t = (el.textContent || '').trim().toLowerCase();
-    if (t.includes('aktywne radiosond')) {
-      const card = el.closest('.card') || el;
-      if (card && card.classList) card.classList.add('active-sondes-card');
-      break;
-    }
-  }
-}
-
-function getPanel() {
-        // Najczęściej: #sonde-panel. Jeśli u Ciebie inny kontener, to tu jedyna linia do zmiany.
-        const p = qs('#sonde-panel');
-if (p) return p;
-// Szukaj najbardziej sensownego przewijalnego kontenera w telemetrii (nie całe view-telemetry)
-const root = qs('#view-telemetry');
-if (!root) return null;
-const candidates = Array.from(root.querySelectorAll('.card, .panel, .telemetry, .telemetry-scroll, .scroll, .scroll-y'));
-for (const el of candidates) {
-  const cs = getComputedStyle(el);
-  const canScroll = (cs.overflowY === 'auto' || cs.overflowY === 'scroll') && (el.scrollHeight - el.clientHeight > 50);
-  if (!canScroll) continue;
-  // pomiń listę aktywnych radiosond
-  const txt = (el.textContent || '').toLowerCase();
-  if (txt.includes('aktywne radiosond')) continue;
-  return el;
-}
-// fallback: pierwszy przewijalny element w telemetrii
-return candidates.find(el => (el.scrollHeight - el.clientHeight > 50)) || root;
-}
-
-      function start() {
-        if (timer) return;
-        const panel = getPanel();
-        if (!panel) return;
-
-        timer = setInterval(() => {
-          if (!document.body.classList.contains('presentation-mode')) return;
-          const max = panel.scrollHeight - panel.clientHeight;
-          if (max <= 2) return;
-          panel.scrollTop += STEP;
-          if (panel.scrollTop >= max) panel.scrollTop = 0;
-        }, SCROLL_MS);
-      }
-
-      function stop() {
-        if (!timer) return;
-        clearInterval(timer);
-        timer = null;
-      }
-
-      function sync() {
-  if (document.body.classList.contains('presentation-mode')) {
-    // Spróbuj wejść w fullscreen (wymaga gestu użytkownika; jeśli się nie uda, ignorujemy)
-    try {
-      const el = document.documentElement;
-      if (el && el.requestFullscreen && !document.fullscreenElement) {
-        el.requestFullscreen().catch(()=>{});
-      }
-    } catch(e) {}
-    hideActiveList();
-    start();
-    // Leaflet po zmianie rozmiaru kontenera potrzebuje invalidateSize
-    setTimeout(invalidateLeaflet, 150);
-    setTimeout(invalidateLeaflet, 800);
-  } else {
-    stop();
-  }
-}
-
-      // Reaguj na wejście/wyjście z prezentacji
-      const obs = new MutationObserver(sync);
-      obs.observe(document.body, { attributes: true, attributeFilter: ['class'] });
-
-  window.addEventListener('resize', () => {
-    if (!document.body.classList.contains('presentation-mode')) return;
-    setTimeout(invalidateLeaflet, 120);
-    setTimeout(resizeAllCharts, 180);
-  });
-
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', sync);
-      } else {
-        sync();
-      }
-    })();
-/* === PRESENTATION_SLOW_AUTOSCROLL ===
-   Powolny, automatyczny scroll danych pod mapą
-   DZIAŁA TYLKO w trybie prezentacji (body.presentation-mode)
-   Nie rusza wykresów ani zakładki "Dane graficzne"
-*/
-
-(() => {
-  const SCROLL_INTERVAL = 40; // ms
-  const SCROLL_STEP = 0.5;    // px
-
-  let timer = null;
-
-  const qs = (s, r = document) => r.querySelector(s);
-
-  function findTelemetryPanel() {
-    // Preferowany panel z danymi pod mapą
-    const direct = qs('#sonde-panel');
-    if (direct) return direct;
-
-    const root = qs('#view-telemetry');
-    if (!root) return null;
-
-    // Szukamy przewijalnego kontenera z danymi (pomijamy listę aktywnych radiosond)
-    const candidates = Array.from(root.querySelectorAll('.card, .panel, .telemetry, .scroll, .scroll-y'));
-    for (const el of candidates) {
-      const style = getComputedStyle(el);
-      const canScroll = (style.overflowY === 'auto' || style.overflowY === 'scroll')
-        && (el.scrollHeight - el.clientHeight > 80);
-
-      if (!canScroll) continue;
-
-      const text = (el.textContent || '').toLowerCase();
-      if (text.includes('aktywne radiosond')) continue;
-
-      return el;
-    }
-
-    return null;
-  }
-
-  function startScroll() {
-    if (timer) return;
-
-    const panel = findTelemetryPanel();
-    if (!panel) return;
-
-    timer = setInterval(() => {
-      if (!document.body.classList.contains('presentation-mode')) return;
-
-      const max = panel.scrollHeight - panel.clientHeight;
-      if (max <= 0) return;
-
-      panel.scrollTop += SCROLL_STEP;
-
-      if (panel.scrollTop >= max) {
-        panel.scrollTop = 0;
-      }
-    }, SCROLL_INTERVAL);
-  }
-
-  function stopScroll() {
-    if (!timer) return;
-    clearInterval(timer);
-    timer = null;
-  }
-
-  function sync() {
-    if (document.body.classList.contains('presentation-mode')) {
-      startScroll();
-    } else {
-      stopScroll();
-    }
-  }
-
-  // Obserwuj wejście/wyjście z trybu prezentacji
-  const observer = new MutationObserver(sync);
-  observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', sync);
-  } else {
-    sync();
-  }
-})();
-/* === PRESENTATION_SLOW_AUTOSCROLL_V2 ===
-   Powolny, automatyczny scroll danych pod mapą.
-   Naprawa: bardziej odporne wykrywanie trybu prezentacji + ponowne wyszukiwanie panelu (DOM może się zmieniać).
-   Nie rusza wykresów ani zakładki "Dane graficzne".
-*/
-(() => {
-  const SCROLL_INTERVAL = 40; // ms
-  const SCROLL_STEP = 0.5;    // px
-  const MIN_SCROLL_PX = 80;   // minimalna "nadwyżka" wysokości, żeby uznać element za przewijalny
-
-  let timer = null;
-
-  const qs = (s, r = document) => r.querySelector(s);
-
-  function isPresentation() {
-    const b = document.body;
-    const h = document.documentElement;
-    // wspieramy kilka możliwych klas (na wypadek różnych wersji przycisku "Prezentuj")
-    const classes = ['presentation-mode', 'present-mode', 'is-presenting', 'presentation'];
-    return classes.some(c => (b && b.classList.contains(c)) || (h && h.classList.contains(c)));
-  }
-
-  function isScrollable(el) {
-    if (!el) return false;
-    const cs = getComputedStyle(el);
-    const oy = cs.overflowY;
-    const can = (oy === 'auto' || oy === 'scroll');
-    const diff = el.scrollHeight - el.clientHeight;
-    return can && diff > MIN_SCROLL_PX;
-  }
-
-  function looksLikeActiveList(el) {
-    const t = (el.textContent || '').toLowerCase();
-    return t.includes('aktywne radiosond') || t.includes('active radiosond') || t.includes('active sondes');
-  }
-
-  function findTelemetryPanel() {
-    // 1) Najlepszy przypadek: id
-    const direct = qs('#sonde-panel');
-    if (direct) return direct;
-
-    // 2) Telemetria view
-    const root = qs('#view-telemetry') || qs('#telemetry') || qs('[data-view="telemetry"]');
-    if (!root) return null;
-
-    // 3) Najpierw spróbuj znanych kontenerów scroll
-    const known = root.querySelector('.telemetry-scroll, .telemetryPanel, .telemetry-panel, .side-panel, .scroll, .scroll-y');
-    if (known && isScrollable(known) && !looksLikeActiveList(known)) return known;
-
-    // 4) Heurystyka: szukaj NAJBARDZIEJ przewijalnego elementu (z największą nadwyżką wysokości)
-    const candidates = Array.from(root.querySelectorAll('*'))
-      .filter(el => el instanceof HTMLElement)
-      .filter(el => isScrollable(el))
-      .filter(el => !looksLikeActiveList(el));
-
-    if (!candidates.length) return null;
-
-    candidates.sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight));
-    return candidates[0] || null;
-  }
-
-  function tick() {
-    if (!isPresentation()) return;
-
-    const panel = findTelemetryPanel();
-    if (!panel) return;
-
-    const max = panel.scrollHeight - panel.clientHeight;
-    if (max <= 0) return;
-
-    panel.scrollTop += SCROLL_STEP;
-    if (panel.scrollTop >= max) panel.scrollTop = 0;
-  }
-
-  function start() {
-    if (timer) return;
-    timer = setInterval(tick, SCROLL_INTERVAL);
-  }
-
-  function stop() {
-    if (!timer) return;
-    clearInterval(timer);
-    timer = null;
-  }
-
-  function sync() {
-    if (isPresentation()) start();
-    else stop();
-  }
-
-  // Obserwuj klasy (wejście/wyjście z prezentacji)
-  const obs = new MutationObserver(sync);
-  obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-  if (document.body) obs.observe(document.body, { attributes: true, attributeFilter: ['class'] });
-
-  // Dodatkowo: po renderach/zmianach DOM (telemetria się aktualizuje), tick i tak odnajdzie panel na nowo
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', sync);
-  else sync();
-})();
