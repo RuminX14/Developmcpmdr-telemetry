@@ -834,3 +834,102 @@ body.presentation-mode .active-sondes,
 body.presentation-mode .active-sondes-card {
   display: none !important;
 }
+/* === PRESENTATION_SLOW_AUTOSCROLL_V2 ===
+   Powolny, automatyczny scroll danych pod mapą.
+   Naprawa: bardziej odporne wykrywanie trybu prezentacji + ponowne wyszukiwanie panelu (DOM może się zmieniać).
+   Nie rusza wykresów ani zakładki "Dane graficzne".
+*/
+(() => {
+  const SCROLL_INTERVAL = 40; // ms
+  const SCROLL_STEP = 0.5;    // px
+  const MIN_SCROLL_PX = 80;   // minimalna "nadwyżka" wysokości, żeby uznać element za przewijalny
+
+  let timer = null;
+
+  const qs = (s, r = document) => r.querySelector(s);
+
+  function isPresentation() {
+    const b = document.body;
+    const h = document.documentElement;
+    // wspieramy kilka możliwych klas (na wypadek różnych wersji przycisku "Prezentuj")
+    const classes = ['presentation-mode', 'present-mode', 'is-presenting', 'presentation'];
+    return classes.some(c => (b && b.classList.contains(c)) || (h && h.classList.contains(c)));
+  }
+
+  function isScrollable(el) {
+    if (!el) return false;
+    const cs = getComputedStyle(el);
+    const oy = cs.overflowY;
+    const can = (oy === 'auto' || oy === 'scroll');
+    const diff = el.scrollHeight - el.clientHeight;
+    return can && diff > MIN_SCROLL_PX;
+  }
+
+  function looksLikeActiveList(el) {
+    const t = (el.textContent || '').toLowerCase();
+    return t.includes('aktywne radiosond') || t.includes('active radiosond') || t.includes('active sondes');
+  }
+
+  function findTelemetryPanel() {
+    // 1) Najlepszy przypadek: id
+    const direct = qs('#sonde-panel');
+    if (direct) return direct;
+
+    // 2) Telemetria view
+    const root = qs('#view-telemetry') || qs('#telemetry') || qs('[data-view="telemetry"]');
+    if (!root) return null;
+
+    // 3) Najpierw spróbuj znanych kontenerów scroll
+    const known = root.querySelector('.telemetry-scroll, .telemetryPanel, .telemetry-panel, .side-panel, .scroll, .scroll-y');
+    if (known && isScrollable(known) && !looksLikeActiveList(known)) return known;
+
+    // 4) Heurystyka: szukaj NAJBARDZIEJ przewijalnego elementu (z największą nadwyżką wysokości)
+    const candidates = Array.from(root.querySelectorAll('*'))
+      .filter(el => el instanceof HTMLElement)
+      .filter(el => isScrollable(el))
+      .filter(el => !looksLikeActiveList(el));
+
+    if (!candidates.length) return null;
+
+    candidates.sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight));
+    return candidates[0] || null;
+  }
+
+  function tick() {
+    if (!isPresentation()) return;
+
+    const panel = findTelemetryPanel();
+    if (!panel) return;
+
+    const max = panel.scrollHeight - panel.clientHeight;
+    if (max <= 0) return;
+
+    panel.scrollTop += SCROLL_STEP;
+    if (panel.scrollTop >= max) panel.scrollTop = 0;
+  }
+
+  function start() {
+    if (timer) return;
+    timer = setInterval(tick, SCROLL_INTERVAL);
+  }
+
+  function stop() {
+    if (!timer) return;
+    clearInterval(timer);
+    timer = null;
+  }
+
+  function sync() {
+    if (isPresentation()) start();
+    else stop();
+  }
+
+  // Obserwuj klasy (wejście/wyjście z prezentacji)
+  const obs = new MutationObserver(sync);
+  obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+  if (document.body) obs.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+
+  // Dodatkowo: po renderach/zmianach DOM (telemetria się aktualizuje), tick i tak odnajdzie panel na nowo
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', sync);
+  else sync();
+})();
