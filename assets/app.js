@@ -3001,6 +3001,7 @@
   let paused = false;
 
   const SLIDE_MS = 10000;
+  let slidesCache = [];
 
 // autoscroll telemetrii (dane pod mapą) — tylko w prezentacji
 const TELEMETRY_SCROLL_MS = 40; // ms
@@ -3123,8 +3124,10 @@ let telemetryScrollTimer = null;
   function next() {
     const stage = document.getElementById('presentation-slide-stage');
     if (!stage) return;
-    const slides = buildSlides();
+    const slides = slidesCache && slidesCache.length ? slidesCache : buildSlides();
     if (!slides.length) return;
+    // jeśli cache było puste, zapamiętaj je (ale tylko raz)
+    if (!slidesCache || !slidesCache.length) slidesCache = slides;
 
     slideIndex = (slideIndex + 1) % slides.length;
     renderSlide(stage, slides[slideIndex]);
@@ -3134,8 +3137,9 @@ let telemetryScrollTimer = null;
   function prev() {
     const stage = document.getElementById('presentation-slide-stage');
     if (!stage) return;
-    const slides = buildSlides();
+    const slides = slidesCache && slidesCache.length ? slidesCache : buildSlides();
     if (!slides.length) return;
+    if (!slidesCache || !slidesCache.length) slidesCache = slides;
 
     slideIndex = (slideIndex - 1 + slides.length) % slides.length;
     renderSlide(stage, slides[slideIndex]);
@@ -3211,10 +3215,17 @@ function stopTelemetryAutoScroll() {
     // start: pierwszy slajd
     const stage = document.getElementById('presentation-slide-stage');
     const slides = buildSlides();
+    slidesCache = slides;
     slideIndex = 0;
     paused = false;
+    slidesCache = [];
+    slideIndex = 0;
 
-    renderSlide(stage, slides[0]);
+    if (!slidesCache.length) {
+      console.warn('Brak slajdów do prezentacji.');
+      return;
+    }
+    renderSlide(stage, slidesCache[0]);
     invalidateLeafletAndCharts();
     scheduleNext();
   }
@@ -3271,4 +3282,3 @@ function stopTelemetryAutoScroll() {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
   else bind();
 })();
-
