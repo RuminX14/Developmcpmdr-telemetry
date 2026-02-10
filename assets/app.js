@@ -140,6 +140,180 @@
     return Tk * Math.pow(1000 / p, 0.2854);
   }
 
+// ======= CAPE / CIN (surface-based, uproszczone) =======
+// Uwaga: to przybliżenie (pseudo-adiabata). Dla poprawnego działania potrzebuje profilu p, T oraz RH (lub Td).
+// Zwraca { cape, cin } w J/kg albo { null, null } gdy brakuje danych.
+function computeCapeCin(history) {
+  const g = 9.80665;
+  const Rd = 287.05;
+  const cp = 1004.0;
+  const kappa = Rd / cp;
+  const Lv = 2.5e6;
+  const eps = 0.622;
+
+  function es_hPa(Tc) {
+    // Magnus-Tetens (hPa)
+    return 6.112 * Math.exp((17.67 * Tc) / (Tc + 243.5));
+  }
+
+  function tdFromTRH(Tc, RH) {
+    // Bezpieczny punkt rosy z T i RH (RH w %). RH=0 powoduje log(0), więc minimalizujemy.
+    if (!Number.isFinite(Tc) || !Number.isFinite(RH)) return null;
+    const rh = Math.min(100, Math.max(0.5, RH)); // min 0.5% żeby nie było -inf
+    const a = 17.27, b = 237.7;
+    const alpha = (a * Tc) / (b + Tc) + Math.log(rh / 100);
+    return (b * alpha) / (a - alpha);
+  }
+
+  function mixingRatio(p_hPa, TdC) {
+    // w (kg/kg)
+    const e = es_hPa(TdC);
+    return (eps * e) / Math.max(1e-6, (p_hPa - e));
+  }
+
+  function virtualTempK(Tc, w) {
+    // Tv = T(1 + 0.61 w)
+    const Tk = Tc + 273.15;
+    return Tk * (1 + 0.61 * w);
+  }
+
+  // Zbuduj poziomy: alt, p, T, Td (Td z historii albo wyliczony z RH)
+  const levels = history
+    .map(h => {
+      const alt = h.alt;
+      const temp = h.temp;
+      const p = h.pressure;
+      const dew = Number.isFinite(h.dew) ? h.dew : tdFromTRH(temp, h.humidity);
+      return { alt, temp, p, dew, rh: h.humidity };
+    })
+    .filter(l =>
+      Number.isFinite(l.alt) &&
+      Number.isFinite(l.temp) &&
+      Number.isFinite(l.p) && l.p > 0 &&
+      Number.isFinite(l.dew)
+    )
+    .slice()
+    .sort((a, b) => a.alt - b.alt);
+
+  // Za mało punktów profilu -> nie liczymy
+  if (levels.length < 12) return { cape: null, cin: null };
+
+  // Parcel start: pierwszy poziom (najniższy)
+  const sfc = levels[0];
+  const p0 = sfc.p;
+  const T0C = sfc.temp;
+  const Td0C = sfc.dew;
+
+  // wilgotność w warstwie startowej
+  const w0 = mixingRatio(p0, Td0C);
+
+  // LCL przybliżenie (Bolton): wysokość i ciśnienie LCL
+  // T_lcl (K)
+  const T0K = T0C + 273.15;
+  const Td0K = Td0C + 273.15;
+  const TlclK = 1 / (1 / (Td0K - 56) + Math.log(T0K / Td0K) / 800) + 56;
+
+  // p_lcl z Poissona: theta = T (1000/p)^kappa
+  const theta0 = T0K * Math.pow(1000 / p0, kappa);
+  const plcl = 1000 / Math.pow(theta0 / TlclK, 1 / kappa);
+
+  // Funkcja temperatury parcelu (K) na poziomie p:
+  // - poniżej LCL: sucha adiabata
+  // - powyżej LCL: pseudo-adiabata (przybliżenie: iteracyjne podnoszenie w profilu)
+  function parcelTempKAt(i) {
+    const p = levels[i].p;
+
+    if (p >= plcl) {
+      // sucha adiabata
+      return theta0 / Math.pow(1000 / p, kappa);
+    }
+
+    // pseudo-adiabata: prosta integracja krokowa od LCL do danego poziomu
+    // start w LCL
+    let T = TlclK;
+    let pCur = plcl;
+
+    // idź w dół listy poziomów od najbliższego LCL do i
+    // znajdź indeks startowy: pierwszy poziom z p < plcl
+    const startIdx = levels.findIndex(L => L.p < plcl);
+    const endIdx = i;
+
+    // jeśli i jest przed startIdx, to i tak zwróci suchą, ale tu p<plcl więc startIdx <= i
+    for (let j = startIdx; j <= endIdx; j++) {
+      const pNext = levels[j].p;
+      if (!(pNext < pCur)) continue;
+
+      // nasycone mieszanie na aktualnym T i pCur
+      const Tc = T - 273.15;
+      const ws = mixingRatio(pCur, Tc); // przybliżenie: Td ~= T dla nasycenia
+
+      // wilgotna adiabata (Gamma_m) w funkcji T i ws:
+      // dT/dp w przybliżeniu (Bolton-like):
+      const num = (1 + (Lv * ws) / (Rd * T));
+      const den = (cp + (Lv * Lv * ws * eps) / (Rd * T * T));
+      // dT/dlnp = kappa*T * num/den (w przybliżeniu)
+      const dT_dlnp = kappa * T * (num / den);
+
+      const dlnp = Math.log(pNext / pCur);
+      T = T + dT_dlnp * dlnp;
+
+      pCur = pNext;
+    }
+    return T;
+  }
+
+  // Integracja CAPE/CIN po warstwach
+  let cape = 0;
+  let cin = 0;
+
+  for (let i = 1; i < levels.length; i++) {
+    const z1 = levels[i - 1].alt;
+    const z2 = levels[i].alt;
+    const dz = z2 - z1;
+    if (!(dz > 0 && dz < 5000)) continue;
+
+    const env1 = levels[i - 1];
+    const env2 = levels[i];
+
+    // środowisko: Tv
+    const wEnv1 = mixingRatio(env1.p, env1.dew);
+    const wEnv2 = mixingRatio(env2.p, env2.dew);
+    const TvEnv1 = virtualTempK(env1.temp, wEnv1);
+    const TvEnv2 = virtualTempK(env2.temp, wEnv2);
+
+    // parcel: Tv (przyjmij stałe w0 poniżej LCL, a powyżej nasycone ws)
+    const Tp1 = parcelTempKAt(i - 1);
+    const Tp2 = parcelTempKAt(i);
+
+    const p1 = env1.p;
+    const p2 = env2.p;
+
+    const wPar1 = (p1 >= plcl) ? w0 : mixingRatio(p1, Tp1 - 273.15);
+    const wPar2 = (p2 >= plcl) ? w0 : mixingRatio(p2, Tp2 - 273.15);
+    const TvPar1 = (Tp1) * (1 + 0.61 * wPar1);
+    const TvPar2 = (Tp2) * (1 + 0.61 * wPar2);
+
+    // wyporność w dwóch punktach i uśrednienie (trapez)
+    const B1 = g * ((TvPar1 - TvEnv1) / TvEnv1);
+    const B2 = g * ((TvPar2 - TvEnv2) / TvEnv2);
+    const B = 0.5 * (B1 + B2);
+
+    const dE = B * dz; // J/kg
+
+    if (dE > 0) cape += dE;
+    else cin += dE;
+  }
+
+  // Zaokrąglenie
+  if (!Number.isFinite(cape) || !Number.isFinite(cin)) return { cape: null, cin: null };
+  return {
+    cape: Math.round(cape),
+    cin: Math.round(cin)
+  };
+}
+
+
+
   function lclHeight(Tc, Td) {
     if (!Number.isFinite(Tc) || !Number.isFinite(Td)) return null;
     if (Tc < Td) return null;
@@ -665,161 +839,7 @@
     return Number.isFinite(n) ? n : null;
   }
 
-  
-function computeCapeCin(history) {
-  // Proste obliczenie CAPE/CIN z profilu radiosondażu (parcel surface-based, pseudo-adiabatyczne).
-  // Zwraca { cape, cin } w J/kg. Jeśli brak danych -> { cape: null, cin: null }.
-  const levels = history
-    .filter(h =>
-      Number.isFinite(h.alt) &&
-      Number.isFinite(h.temp) &&
-      Number.isFinite(h.dew) &&
-      Number.isFinite(h.pressure) && h.pressure > 0
-    )
-    .slice()
-    .sort((a, b) => a.alt - b.alt);
-
-  if (levels.length < 12) return { cape: null, cin: null };
-
-  const g = 9.80665;
-  const Rd = 287.05;
-  const cp = 1004.0;
-  const kappa = Rd / cp;
-  const Lv = 2.5e6;
-  const eps = 0.622;
-
-  function es_hPa(Tc) {
-    // Magnus-Tetens (hPa)
-    return 6.112 * Math.exp((17.67 * Tc) / (Tc + 243.5));
-  }
-  function mixingRatio(p_hPa, TdC) {
-    const e = es_hPa(TdC);
-    const denom = Math.max(0.1, p_hPa - e);
-    return eps * e / denom; // kg/kg
-  }
-  function wsat(p_hPa, Tc) {
-    const e = es_hPa(Tc);
-    const denom = Math.max(0.1, p_hPa - e);
-    return eps * e / denom;
-  }
-  function virtTempK(Tc, w) {
-    const Tk = Tc + 273.15;
-    return Tk * (1 + 0.61 * (Number.isFinite(w) ? w : 0));
-  }
-  function boltonTlclK(Tk, Tdk) {
-    // Bolton 1980
-    return 1 / (1 / (Tdk - 56) + Math.log(Tk / Tdk) / 800) + 56;
-  }
-  function dryParcelTempC(thetaK, p_hPa) {
-    const Tk = thetaK / Math.pow(1000 / p_hPa, kappa);
-    return Tk - 273.15;
-  }
-  function dTdp_moist(Tk, p_Pa) {
-    // Pseudo-adiabatyczne dT/dp w układzie ciśnieniowym (Euler)
-    const p_hPa = p_Pa / 100;
-    const Tc = Tk - 273.15;
-    const ws = wsat(p_hPa, Tc);
-    const num = kappa * Tk / p_Pa * (1 + (Lv * ws) / (Rd * Tk));
-    const den = 1 + (Lv * Lv * ws * eps) / (cp * Rd * Tk * Tk);
-    return num / den; // K/Pa
-  }
-
-  // Surface (najniższy poziom)
-  const sfc = levels[0];
-  const p0 = sfc.pressure; // hPa
-  const T0 = sfc.temp;     // C
-  const Td0 = sfc.dew;     // C
-
-  const w0 = mixingRatio(p0, Td0);
-  const theta0 = (T0 + 273.15) * Math.pow(1000 / p0, kappa);
-
-  const TlclK = boltonTlclK(T0 + 273.15, Td0 + 273.15);
-  const plcl = p0 * Math.pow(TlclK / (T0 + 273.15), 1 / kappa);
-
-  let cape = 0;
-  let cin = 0;
-
-  // Parcel state for integration along observed levels
-  let TpK = T0 + 273.15;
-  let pPrev = p0;
-  let zPrev = sfc.alt;
-
-  // Environment virtual at prev
-  let wEnvPrev = mixingRatio(pPrev, Td0);
-  let TvEnvPrev = virtTempK(T0, wEnvPrev);
-  let wParPrev = w0;
-  let TvParPrev = virtTempK(T0, wParPrev);
-  let Bprev = g * (TvParPrev - TvEnvPrev) / TvEnvPrev;
-
-  for (let i = 1; i < levels.length; i++) {
-    const lev = levels[i];
-    const p = lev.pressure;      // hPa
-    const z = lev.alt;
-    const TenvC = lev.temp;
-    const TdenvC = lev.dew;
-
-    // Integrate parcel temp from pPrev -> p (pressure usually decreases with altitude)
-    let p1Pa = pPrev * 100;
-    let p2Pa = p * 100;
-    // If pressure not monotonic, skip this segment
-    if (!(p2Pa < p1Pa)) {
-      pPrev = p;
-      zPrev = z;
-      continue;
-    }
-
-    const steps = 8;
-    for (let s = 0; s < steps; s++) {
-      const frac = (s + 1) / steps;
-      const pStepPa = p1Pa + (p2Pa - p1Pa) * frac;
-      const pStep = pStepPa / 100;
-
-      if (pStep > plcl) {
-        // dry
-        const Tc = dryParcelTempC(theta0, pStep);
-        TpK = Tc + 273.15;
-      } else {
-        // moist (Euler)
-        const dp = (p2Pa - p1Pa) / steps; // negative
-        TpK = TpK + dTdp_moist(TpK, pStepPa) * dp;
-      }
-    }
-
-    const TpC = TpK - 273.15;
-
-    // Parcel mixing ratio: below LCL constant, above saturated
-    const wPar = (p > plcl) ? w0 : wsat(p, TpC);
-
-    // Env mixing ratio from dewpoint
-    const wEnv = mixingRatio(p, TdenvC);
-
-    const TvPar = virtTempK(TpC, wPar);
-    const TvEnv = virtTempK(TenvC, wEnv);
-
-    const B = g * (TvPar - TvEnv) / TvEnv;
-
-    // integrate buoyancy over dz using trapezoid
-    const dz = z - zPrev;
-    if (Number.isFinite(dz) && dz > 0 && Number.isFinite(Bprev) && Number.isFinite(B)) {
-      const area = 0.5 * (Bprev + B) * dz;
-      if (area > 0) cape += area;
-      else cin += area; // negative
-    }
-
-    // update prev
-    pPrev = p;
-    zPrev = z;
-    Bprev = B;
-  }
-
-  // CIN as negative magnitude (common convention is negative J/kg)
-  return {
-    cape: Number.isFinite(cape) ? cape : null,
-    cin: Number.isFinite(cin) ? cin : null
-  };
-}
-
-function getOrCreateSonde(id) {
+  function getOrCreateSonde(id) {
     if (!state.sondes.has(id)) {
       state.sondes.set(id, {
         id,
@@ -939,11 +959,11 @@ function getOrCreateSonde(id) {
     s.stabilityIndex = stab.gamma;
     s.stabilityClass = stab.cls;
 
-    
     const cc = computeCapeCin(s.history);
     s.cape = cc.cape;
     s.cin = cc.cin;
-ensureMapObjects(s);
+
+    ensureMapObjects(s);
     updateLaunchBurstMarkers(s);
   }
 
