@@ -3108,6 +3108,51 @@ function computeCapeCin(history) {
       doc.addImage(imgData, 'PNG', margin, y, imgWidth, imgHeight);
       y += imgHeight + 8;
     }
+async function addElementImageBySelector(selector, label) {
+  const el = document.querySelector(selector);
+  if (!el) {
+    console.warn('Element not found for PDF:', selector);
+    return;
+  }
+
+  // ensure there is room; rough estimate 90mm default before capture
+  if (y + 90 > 287) { doc.addPage(); y = 15; }
+
+  doc.setFontSize(11);
+  doc.text(label, 15, y);
+  y += 4;
+
+  try {
+    const canvasEl = await html2canvas(el, {
+      useCORS: true,
+      scale: 2,
+      backgroundColor: '#050922'
+    });
+    const imgDataEl = canvasEl.toDataURL('image/png', 0.92);
+
+    const pageWidth = 210;
+    const margin = 15;
+    const maxWidth = pageWidth - margin * 2;
+    const aspect = canvasEl.height / canvasEl.width;
+    const imgWidth = maxWidth;
+    const imgHeight = imgWidth * aspect;
+
+    if (y + imgHeight + 10 > 287) {
+      doc.addPage();
+      y = 15;
+      doc.setFontSize(11);
+      doc.text(label, margin, y);
+      y += 4;
+    }
+
+    doc.addImage(imgDataEl, 'PNG', margin, y, imgWidth, imgHeight);
+    y += imgHeight + 8;
+  } catch (e) {
+    console.error('Element to PDF error:', selector, e);
+  }
+}
+
+
 
     try { addChartImageByCanvasId('chart-volt-temp',   'Temperature vs time'); } catch (e) { console.error(e); }
     try { addChartImageByCanvasId('chart-hvel',        'Horizontal speed vs time'); } catch (e) { console.error(e); }
@@ -3115,6 +3160,17 @@ function computeCapeCin(history) {
     try { addChartImageByCanvasId('chart-wind-profile','Wind profile'); } catch (e) { console.error(e); }
     try { addChartImageByCanvasId('chart-density',     'Air density vs altitude'); } catch (e) { console.error(e); }
     try { addChartImageByCanvasId('chart-signal-temp', 'RSSI and supply voltage vs temperature'); } catch (e) { console.error(e); }
+
+// Newer charts added after the original PDF module
+try { addChartImageByCanvasId('chart-gnss',       'GNSS data'); } catch (e) { console.error(e); }
+try { addChartImageByCanvasId('chart-skewt',      'Skew-T Log-P'); } catch (e) { console.error(e); }
+
+// Indicator cards / boxes (non-canvas)
+await addElementImageBySelector('#stability-box',     'Stability (box)');
+await addElementImageBySelector('#cape-cin-card',     'CAPE / CIN');
+await addElementImageBySelector('#visibility-card',   'Visibility estimate');
+await addElementImageBySelector('.visibility-card',   'Visibility estimate');
+
 
     const miniEl = document.getElementById('mini-map');
     if (miniEl) {
