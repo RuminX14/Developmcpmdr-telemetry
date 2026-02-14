@@ -834,3 +834,11 @@ body.presentation-mode .active-sondes,
 body.presentation-mode .active-sondes-card {
   display: none !important;
 }
+/* FIX: spłaszczony wykres Dane środowiskowe (T, RH, p) */
+#chart-env {
+  display: block;
+  width: 100% !important;
+  height: 320px !important;   /* <- kluczowe */
+}
+
+#chart-env { max-height: 420px; } /* opcjonalnie */
