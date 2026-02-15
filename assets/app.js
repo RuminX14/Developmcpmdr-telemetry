@@ -3150,13 +3150,104 @@ async function addElementImageBySelector(selector, label) {
   } catch (e) {
     console.error('Element to PDF error:', selector, e);
   }
+
+
+async function addChartCardImageByCanvasId(canvasId, label, heightPx = 380) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) {
+    console.warn('Canvas not found for PDF:', canvasId);
+    return;
+  }
+
+  const card = canvas.closest('.card') || canvas.parentElement;
+  const prev = {
+    cardHeight: card ? card.style.height : '',
+    cardMaxHeight: card ? card.style.maxHeight : '',
+    canvasHeight: canvas.style.height,
+    canvasWidth: canvas.style.width
+  };
+
+  try {
+    // Temporarily increase render height ONLY for PDF capture (does not change saved layout)
+    if (card) {
+      card.style.height = heightPx + 'px';
+      card.style.maxHeight = heightPx + 'px';
+    }
+    canvas.style.width = '100%';
+    canvas.style.height = Math.max(220, heightPx - 60) + 'px';
+
+    // Force Chart.js to reflow at the new size (if available)
+    const chart = (window.Chart && typeof window.Chart.getChart === 'function') ? window.Chart.getChart(canvas) : null;
+    if (chart) {
+      chart.resize();
+      chart.update('none');
+    } else if (typeof resizeCharts === 'function') {
+      resizeCharts();
+    }
+
+    // Wait 2 frames so layout + Chart.js can settle
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+    // Capture the whole card (title/legend/axes are more readable than raw canvas)
+    const target = card || canvas;
+    if (y + 90 > 287) { doc.addPage(); y = 15; }
+
+    doc.setFontSize(11);
+    doc.text(label, 15, y);
+    y += 4;
+
+    const canvasEl = await html2canvas(target, {
+      useCORS: true,
+      scale: 2,
+      backgroundColor: '#050922'
+    });
+
+    const imgDataEl = canvasEl.toDataURL('image/png', 0.92);
+
+    const pageWidth = 210;
+    const margin = 15;
+    const maxWidth = pageWidth - margin * 2;
+    const aspect = canvasEl.height / canvasEl.width;
+    const imgWidth = maxWidth;
+    const imgHeight = imgWidth * aspect;
+
+    if (y + imgHeight + 10 > 287) {
+      doc.addPage();
+      y = 15;
+      doc.setFontSize(11);
+      doc.text(label, margin, y);
+      y += 4;
+    }
+
+    doc.addImage(imgDataEl, 'PNG', margin, y, imgWidth, imgHeight);
+    y += imgHeight + 8;
+  } catch (e) {
+    console.error('Chart card to PDF error:', canvasId, e);
+  } finally {
+    // Restore original sizes
+    if (card) {
+      card.style.height = prev.cardHeight;
+      card.style.maxHeight = prev.cardMaxHeight;
+    }
+    canvas.style.height = prev.canvasHeight;
+    canvas.style.width = prev.canvasWidth;
+
+    const chart = (window.Chart && typeof window.Chart.getChart === 'function') ? window.Chart.getChart(canvas) : null;
+    if (chart) {
+      chart.resize();
+      chart.update('none');
+    } else if (typeof resizeCharts === 'function') {
+      resizeCharts();
+    }
+  }
+}
 }
 
 
 
     try { addChartImageByCanvasId('chart-volt-temp',   'Temperature vs time'); } catch (e) { console.error(e); }
     try { addChartImageByCanvasId('chart-hvel',        'Horizontal speed vs time'); } catch (e) { console.error(e); }
-    try { addChartImageByCanvasId('chart-env',         'Environmental data (T, RH, p)'); } catch (e) { console.error(e); }
+    try { await addChartCardImageByCanvasId('chart-env', 'Environmental data (T, RH, p)', 380); } catch (e) { console.error(e); }
     try { addChartImageByCanvasId('chart-wind-profile','Wind profile'); } catch (e) { console.error(e); }
     try { addChartImageByCanvasId('chart-density',     'Air density vs altitude'); } catch (e) { console.error(e); }
     try { addChartImageByCanvasId('chart-signal-temp', 'RSSI and supply voltage vs temperature'); } catch (e) { console.error(e); }
