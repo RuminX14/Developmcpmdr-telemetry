@@ -2057,190 +2057,124 @@ function computeCapeCin(history) {
     // 3) Dane srodowiskowe – T / RH / p vs wysokosc
 
     (function () {
+  const id = 'chart-env';
+  const canvas = document.getElementById(id);
+  if (!canvas || !window.Chart) return;
 
-      const id = 'chart-env';
+  // Czytelniejszy układ: oś X = wysokość, trzy osie Y (T, RH, p).
+  // Dzięki temu wykres nie jest "spłaszczony" i nie dubluje skal na górze.
+  function buildData() {
+    const pts = Array.isArray(window.state?.points) ? window.state.points : (Array.isArray(window.points) ? window.points : []);
+    const rows = pts
+      .map(p => ({
+        z: +p.alt_m ?? +p.alt ?? +p.h ?? NaN,
+        t: +p.temp_c ?? +p.temp ?? +p.T ?? NaN,
+        rh: +p.rh ?? +p.RH ?? NaN,
+        p: +p.press_hpa ?? +p.pressure_hpa ?? +p.p_hpa ?? +p.p ?? NaN
+      }))
+      .filter(r => Number.isFinite(r.z) && Number.isFinite(r.t) && r.z >= 0 && r.t > -120 && r.t < 60);
 
-      const chart = ensureChart(id, () => ({
+    // RH/p mogą być częściowo brakujące – filtrujemy per-dataset, ale utrzymujemy wspólną oś X.
+    const tempSeries = rows.map(r => ({ x: r.z, y: r.t }));
+    const rhSeries = rows.filter(r => Number.isFinite(r.rh) && r.rh >= 0 && r.rh <= 100).map(r => ({ x: r.z, y: r.rh }));
+    const pSeries = rows.filter(r => Number.isFinite(r.p) && r.p > 0 && r.p < 1100).map(r => ({ x: r.z, y: r.p }));
 
-        type: 'scatter',
+    return { tempSeries, rhSeries, pSeries };
+  }
 
-        data: {
+  const { tempSeries, rhSeries, pSeries } = buildData();
 
-          datasets: [
+  const ctx = canvas.getContext('2d');
 
-            {
-
-              label: 'Temperatura [C]',
-
-              xAxisID: 'xTemp',
-
-              yAxisID: 'y',
-
-              data: [],
-
-              showLine: true,
-
-              borderWidth: 1.2,
-
-              pointRadius: 2
-
-            },
-
-            {
-
-              label: 'Wilgotnosc [%]',
-
-              xAxisID: 'xRH',
-
-              yAxisID: 'y',
-
-              data: [],
-
-              showLine: true,
-
-              borderWidth: 1.2,
-
-              pointRadius: 2
-
-            },
-
-            {
-
-              label: 'Cisnienie [hPa]',
-
-              xAxisID: 'xP',
-
-              yAxisID: 'y',
-
-              data: [],
-
-              showLine: true,
-
-              borderWidth: 1.2,
-
-              pointRadius: 2
-
-            }
-
-          ]
-
-        },
-
-        options: {
-
-          responsive: true,
-
-          maintainAspectRatio: false,
-
-          animation: false,
-
+  // Jeśli wykres istnieje, tylko aktualizujemy dane (nie niszczymy innych działających rzeczy).
+  const existing = window.__charts?.[id];
+  const cfg = {
+    type: 'line',
+    data: {
+      datasets: [
+        {
+          label: 'Temperatura [°C]',
+          data: tempSeries,
           parsing: false,
-
-          scales: {
-
-            xTemp: {
-
-              type: 'linear',
-
-              position: 'bottom',
-
-              title: { display: true, text: 'Temperatura [C]', color: '#e6ebff' },
-
-              grid: { color: 'rgba(134,144,176,.35)' },
-
-              ticks: { color: '#e6ebff' }
-
-            },
-
-            xRH: {
-
-              type: 'linear',
-
-              position: 'top',
-
-              title: { display: true, text: 'Wilgotnosc [%]', color: '#e6ebff' },
-
-              grid: { display: false },
-
-              ticks: { color: '#e6ebff' }
-
-            },
-
-            xP: {
-
-              type: 'linear',
-
-              position: 'top',
-
-              offset: true,
-
-              title: { display: true, text: 'Cisnienie [hPa]', color: '#e6ebff' },
-
-              grid: { display: false },
-
-              ticks: { color: '#e6ebff' }
-
-            },
-
-            y: {
-
-              type: 'linear',
-
-              title: { display: true, text: 'Wysokosc [m]', color: '#e6ebff' },
-
-              grid: { color: 'rgba(134,144,176,.35)' },
-
-              ticks: { color: '#e6ebff' }
-
-            }
-
-          },
-
-          plugins: {
-
-            tooltip: tooltipWithAltitude(),
-
-            legend: { labels: { color: '#e6ebff' } }
-
-          }
-
+          yAxisID: 'yT',
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.25
+        },
+        {
+          label: 'Wilgotność [%]',
+          data: rhSeries,
+          parsing: false,
+          yAxisID: 'yRH',
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.25
+        },
+        {
+          label: 'Ciśnienie [hPa]',
+          data: pSeries,
+          parsing: false,
+          yAxisID: 'yP',
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.25
         }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      normalized: true,
+      interaction: { mode: 'nearest', intersect: false },
+      plugins: {
+        legend: { display: true, position: 'top' },
+        tooltip: { enabled: true }
+      },
+      scales: {
+        x: {
+          type: 'linear',
+          title: { display: true, text: 'Wysokość [m]' },
+          ticks: { maxTicksLimit: 8 }
+        },
+        yT: {
+          type: 'linear',
+          position: 'left',
+          title: { display: true, text: 'Temperatura [°C]' },
+          ticks: { maxTicksLimit: 6 }
+        },
+        yRH: {
+          type: 'linear',
+          position: 'right',
+          title: { display: true, text: 'Wilgotność [%]' },
+          min: 0,
+          max: 100,
+          grid: { drawOnChartArea: false },
+          ticks: { maxTicksLimit: 6 }
+        },
+        yP: {
+          type: 'linear',
+          position: 'right',
+          offset: true,
+          title: { display: true, text: 'Ciśnienie [hPa]' },
+          grid: { drawOnChartArea: false },
+          ticks: { maxTicksLimit: 6 }
+        }
+      }
+    }
+  };
 
-      }));
-
-      if (!chart) return;
-
-
-      const tempData = hist
-
-        .filter(h => Number.isFinite(h.temp) && Number.isFinite(h.alt))
-
-        .map(h => ({ x: h.temp, y: h.alt, alt: h.alt }));
-
-
-      const rhData = hist
-
-        .filter(h => Number.isFinite(h.humidity) && Number.isFinite(h.alt))
-
-        .map(h => ({ x: h.humidity, y: h.alt, alt: h.alt }));
-
-
-      const pData = hist
-
-        .filter(h => Number.isFinite(h.pressure) && Number.isFinite(h.alt))
-
-        .map(h => ({ x: h.pressure, y: h.alt, alt: h.alt }));
-
-
-      chart.data.datasets[0].data = tempData;
-
-      chart.data.datasets[1].data = rhData;
-
-      chart.data.datasets[2].data = pData;
-
-      chart.update('none');
-
-    })();// 4) Prędkość pozioma vs czas
+  window.__charts = window.__charts || {};
+  if (existing && typeof existing.update === 'function') {
+    existing.config.type = cfg.type;
+    existing.data.datasets = cfg.data.datasets;
+    existing.options = cfg.options;
+    existing.update('none');
+  } else {
+    window.__charts[id] = new Chart(ctx, cfg);
+  }
+})();
+// 4) Prędkość pozioma vs czas
     (function () {
       const id = 'chart-hvel';
       const chart = ensureChart(id, () => ({
