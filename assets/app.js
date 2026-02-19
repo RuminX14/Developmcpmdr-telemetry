@@ -15,7 +15,8 @@
     map: null,
     layers: {},
     rxMarker: null,
-    sondes: new Map(),      // id -> sonde object
+    sondes: new Map(),
+    sondehubExtra: { serial: null, points: [] },      // id -> sonde object
     activeId: null,
     charts: {},
     lang: localStorage.getItem('lang') || 'pl',
@@ -1826,198 +1827,121 @@ function computeCapeCin(history) {
     // 1) Temperatura vs wysokosc
 
 
-    (function () {
+    
+(function () {
+  const id = 'chart-volt-temp';
 
-
-      const id = 'chart-volt-temp';
-
-
-      const chart = ensureChart(id, () => ({
-
-
-        type: 'scatter',
-
-
-        data: {
-
-
-          datasets: [
-
-
-            {
-
-
-              label: 'Temperatura [C] vs wysokosc [m]',
-
-
-              data: [],
-
-
-              showLine: true,
-
-
-              borderWidth: 1.5,
-
-
-              pointRadius: 2
-
-
-            }
-
-
-          ]
-
-
-        },
-
-
-        options: {
-
-
-          responsive: true,
-
-
-          maintainAspectRatio: false,
-
-
-          animation: false,
-
-
+  const chart = ensureChart(id, () => ({
+    type: 'scatter',
+    data: {
+      datasets: [
+        {
+          label: 'RSSI/SNR vs Temperatura',
+          data: [],
+          showLine: false,
+          borderWidth: 1.5,
+          pointRadius: 2,
           parsing: false,
-
-
-          scales: {
-
-
-            x: {
-
-
-              type: 'linear',
-
-
-              title: { display: true, text: 'Temperatura [C]', color: '#e6ebff' },
-
-
-              grid: { color: 'rgba(134,144,176,.35)' },
-
-
-              ticks: { color: '#e6ebff' }
-
-
-            },
-
-
-            y: {
-
-
-              type: 'linear',
-
-
-              title: { display: true, text: 'Wysokosc [m]', color: '#e6ebff' },
-
-
-              grid: { color: 'rgba(134,144,176,.35)' },
-
-
-              ticks: { color: '#e6ebff' }
-
-
-            }
-
-
-          },
-
-
-          plugins: {
-
-
-            tooltip: {
-
-
-              callbacks: {
-
-
-                label(ctx) {
-
-
-                  const p = ctx.raw || {};
-
-
-                  const T = Number.isFinite(p.x) ? p.x.toFixed(1) : '—';
-
-
-                  const z = Number.isFinite(p.y) ? p.y.toFixed(0) : '—';
-
-
-                  const t = p.t ? new Date(p.t).toLocaleTimeString() : null;
-
-
-                  return t
-
-
-                    ? `T: ${T} C, z: ${z} m, t: ${t}`
-
-
-                    : `T: ${T} C, z: ${z} m`;
-
-
-                }
-
-
-              }
-
-
-            },
-
-
-            legend: { labels: { color: '#e6ebff' } }
-
-
-          }
-
-
+          yAxisID: 'y1'
+        },
+        {
+          label: 'Napięcie/Bateria vs Temperatura',
+          data: [],
+          showLine: false,
+          borderWidth: 1.5,
+          pointRadius: 2,
+          parsing: false,
+          yAxisID: 'y2'
         }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      parsing: false,
+      scales: {
+        x: {
+          type: 'linear',
+          title: { display: true, text: 'Temperatura [°C]', color: '#e6ebff' },
+          grid: { color: 'rgba(134,144,176,.35)' },
+          ticks: { color: '#e6ebff' }
+        },
+        y1: {
+          type: 'linear',
+          position: 'left',
+          title: { display: true, text: 'RSSI / SNR', color: '#e6ebff' },
+          grid: { color: 'rgba(134,144,176,.35)' },
+          ticks: { color: '#e6ebff' }
+        },
+        y2: {
+          type: 'linear',
+          position: 'right',
+          grid: { display: false },
+          title: { display: true, text: 'Napięcie [V]', color: '#e6ebff' },
+          ticks: { color: '#e6ebff' }
+        }
+      },
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label(ctx) {
+              const p = ctx.raw || {};
+              const T = Number.isFinite(p.x) ? p.x.toFixed(1) : '—';
+              const y = Number.isFinite(p.y) ? p.y.toFixed(2) : '—';
+              const t = p.t ? new Date(p.t).toLocaleTimeString() : null;
+              return t ? `${ctx.dataset.label}: ${y} (T: ${T}°C, t: ${t})` : `${ctx.dataset.label}: ${y} (T: ${T}°C)`;
+            }
+          }
+        },
+        legend: { labels: { color: '#e6ebff' } }
+      }
+    }
+  }));
+  if (!chart) return;
 
+  // Historia z radiosondy.info: temp + czas (do dopasowania temperatury)
+  const histT = hist
+    .filter(h => h && h.time && Number.isFinite(h.temp))
+    .map(h => ({ t: h.time.getTime(), temp: h.temp }))
+    .sort((a, b) => a.t - b.t);
 
-      }));
+  function nearestTemp(ms) {
+    if (!histT.length) return null;
+    // binary search
+    let lo = 0, hi = histT.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (histT[mid].t < ms) lo = mid + 1;
+      else hi = mid;
+    }
+    const i = lo;
+    const a = histT[i];
+    const b = histT[i - 1];
+    if (!b) return a.temp;
+    if (!a) return b.temp;
+    return (Math.abs(a.t - ms) < Math.abs(ms - b.t)) ? a.temp : b.temp;
+  }
 
+  const sh = state.sondehubExtra && Array.isArray(state.sondehubExtra.points) ? state.sondehubExtra.points : [];
 
-      if (!chart) return;
+  const rssiPts = [];
+  const battPts = [];
 
+  for (const p of sh) {
+    const T = nearestTemp(p.t);
+    if (!Number.isFinite(T)) continue;
 
+    if (Number.isFinite(p.snr)) rssiPts.push({ x: T, y: p.snr, t: p.t });
+    if (Number.isFinite(p.batt)) battPts.push({ x: T, y: p.batt, t: p.t });
+  }
 
-      const data = hist
+  chart.data.datasets[0].data = rssiPts;
+  chart.data.datasets[1].data = battPts;
+  chart.update('none');
+})();
 
-
-        .filter(h => Number.isFinite(h.temp) && Number.isFinite(h.alt))
-
-
-        .map(h => ({
-
-
-          x: h.temp,
-
-
-          y: h.alt,
-
-
-          t: h.time.getTime()
-
-
-        }))
-
-
-        .sort((a, b) => a.y - b.y);
-
-
-
-      chart.data.datasets[0].data = data;
-
-
-      chart.update('none');
-
-
-    })();// 2) GNSS – placeholder
+// 2) GNSS – placeholder// 2) GNSS – placeholder
     (function () {
       const id = 'chart-gnss';
       const chart = ensureChart(id, () => ({
@@ -2049,11 +1973,13 @@ function computeCapeCin(history) {
       }));
       if (!chart) return;
 
-      chart.data.datasets[0].data = [];
+      const sh = state.sondehubExtra && Array.isArray(state.sondehubExtra.points) ? state.sondehubExtra.points : [];
+      chart.data.datasets[0].data = sh
+        .filter(p => Number.isFinite(p.sats))
+        .map(p => ({ x: new Date(p.t), y: p.sats }));
       chart.update('none');
     })();
-
-    // 3) Dane środowiskowe – T / RH / p
+// 3) Dane środowiskowe – T / RH / p
     // 3) Dane srodowiskowe – T / RH / p vs wysokosc
 
     (function () {
@@ -2232,11 +2158,11 @@ function computeCapeCin(history) {
         .map(h => ({ x: h.pressure, y: h.alt, alt: h.alt }));
 
 
-      chart.data.datasets[0].data = tempData.slice().sort((a,b)=>a.y-b.y);
+      chart.data.datasets[0].data = tempData;
 
-      chart.data.datasets[1].data = rhData.slice().sort((a,b)=>a.y-b.y);
+      chart.data.datasets[1].data = rhData;
 
-      chart.data.datasets[2].data = pData.slice().sort((a,b)=>a.y-b.y);
+      chart.data.datasets[2].data = pData;
 
       chart.update('none');
 
@@ -2427,10 +2353,10 @@ function computeCapeCin(history) {
         }
       }
 
-      chart.data.datasets[0].data = speedUp.slice().sort((a,b)=>a.y-b.y);
-      chart.data.datasets[1].data = speedDown.slice().sort((a,b)=>a.y-b.y);
-      chart.data.datasets[2].data = dirUp.slice().sort((a,b)=>a.y-b.y);
-      chart.data.datasets[3].data = dirDown.slice().sort((a,b)=>a.y-b.y);
+      chart.data.datasets[0].data = speedUp;
+      chart.data.datasets[1].data = speedDown;
+      chart.data.datasets[2].data = dirUp;
+      chart.data.datasets[3].data = dirDown;
 
       const allSpeeds = [...speedUp, ...speedDown];
       let maxSpeed = 0;
@@ -2498,7 +2424,7 @@ function computeCapeCin(history) {
           return { x: rho, y: h.alt, alt: h.alt };
         });
 
-      chart.data.datasets[0].data = densityData.slice().sort((a,b)=>a.y-b.y);
+      chart.data.datasets[0].data = densityData;
       chart.update('none');
     })();
 
@@ -3108,7 +3034,84 @@ function computeCapeCin(history) {
       doc.addImage(imgData, 'PNG', margin, y, imgWidth, imgHeight);
       y += imgHeight + 8;
     }
-async function addElementImageBySelector(selector, label) {
+async 
+// Specjalny capture dla chart-env: tymczasowo powiększa wysokość i robi zrzut w wysokiej rozdzielczości
+async function addHighResEnvChart(canvasId, label, tempHeightPx = 520, scale = 3) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) {
+    console.warn('Canvas not found for PDF:', canvasId);
+    return;
+  }
+
+  const parent = canvas.parentElement;
+  const prev = {
+    cH: canvas.style.height,
+    cW: canvas.style.width,
+    pMinH: parent ? parent.style.minHeight : ''
+  };
+
+  try {
+    // Tymczasowo zwiększ wysokość tylko na potrzeby PDF (UI wróci po wszystkim)
+    canvas.style.width = '100%';
+    canvas.style.height = tempHeightPx + 'px';
+    if (parent) parent.style.minHeight = tempHeightPx + 'px';
+
+    // Chart.js reflow
+    try {
+      const ch = (window.Chart && typeof window.Chart.getChart === 'function') ? window.Chart.getChart(canvas) : null;
+      if (ch) { ch.resize(); ch.update('none'); }
+      else if (typeof resizeCharts === 'function') resizeCharts();
+    } catch(e) {}
+
+    // daj czas na layout
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+    // Nowa strona jeśli brak miejsca
+    if (y + 90 > 287) { doc.addPage(); y = 15; }
+
+    doc.setFontSize(11);
+    doc.text(label, 15, y);
+    y += 4;
+
+    const cap = await html2canvas(canvas, {
+      useCORS: true,
+      scale,
+      backgroundColor: '#050922'
+    });
+
+    const imgData = cap.toDataURL('image/png', 0.92);
+
+    const pageWidth = 210;
+    const margin = 15;
+    const maxWidth = pageWidth - margin * 2;
+    const aspect = cap.height / cap.width;
+    const imgWidth = maxWidth;
+    const imgHeight = imgWidth * aspect;
+
+    if (y + imgHeight + 10 > 287) {
+      doc.addPage();
+      y = 15;
+      doc.setFontSize(11);
+      doc.text(label, margin, y);
+      y += 4;
+    }
+
+    doc.addImage(imgData, 'PNG', margin, y, imgWidth, imgHeight);
+    y += imgHeight + 8;
+  } finally {
+    // restore
+    canvas.style.height = prev.cH;
+    canvas.style.width  = prev.cW;
+    if (parent) parent.style.minHeight = prev.pMinH;
+
+    try {
+      const ch = (window.Chart && typeof window.Chart.getChart === 'function') ? window.Chart.getChart(canvas) : null;
+      if (ch) { ch.resize(); ch.update('none'); }
+    } catch(e) {}
+  }
+}
+
+function addElementImageBySelector(selector, label) {
   const el = document.querySelector(selector);
   if (!el) {
     console.warn('Element not found for PDF:', selector);
@@ -3150,104 +3153,13 @@ async function addElementImageBySelector(selector, label) {
   } catch (e) {
     console.error('Element to PDF error:', selector, e);
   }
-
-
-async function addChartCardImageByCanvasId(canvasId, label, heightPx = 380) {
-  const canvas = document.getElementById(canvasId);
-  if (!canvas) {
-    console.warn('Canvas not found for PDF:', canvasId);
-    return;
-  }
-
-  const card = canvas.closest('.card') || canvas.parentElement;
-  const prev = {
-    cardHeight: card ? card.style.height : '',
-    cardMaxHeight: card ? card.style.maxHeight : '',
-    canvasHeight: canvas.style.height,
-    canvasWidth: canvas.style.width
-  };
-
-  try {
-    // Temporarily increase render height ONLY for PDF capture (does not change saved layout)
-    if (card) {
-      card.style.height = heightPx + 'px';
-      card.style.maxHeight = heightPx + 'px';
-    }
-    canvas.style.width = '100%';
-    canvas.style.height = Math.max(220, heightPx - 60) + 'px';
-
-    // Force Chart.js to reflow at the new size (if available)
-    const chart = (window.Chart && typeof window.Chart.getChart === 'function') ? window.Chart.getChart(canvas) : null;
-    if (chart) {
-      chart.resize();
-      chart.update('none');
-    } else if (typeof resizeCharts === 'function') {
-      resizeCharts();
-    }
-
-    // Wait 2 frames so layout + Chart.js can settle
-    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-
-    // Capture the whole card (title/legend/axes are more readable than raw canvas)
-    const target = card || canvas;
-    if (y + 90 > 287) { doc.addPage(); y = 15; }
-
-    doc.setFontSize(11);
-    doc.text(label, 15, y);
-    y += 4;
-
-    const canvasEl = await html2canvas(target, {
-      useCORS: true,
-      scale: 2,
-      backgroundColor: '#050922'
-    });
-
-    const imgDataEl = canvasEl.toDataURL('image/png', 0.92);
-
-    const pageWidth = 210;
-    const margin = 15;
-    const maxWidth = pageWidth - margin * 2;
-    const aspect = canvasEl.height / canvasEl.width;
-    const imgWidth = maxWidth;
-    const imgHeight = imgWidth * aspect;
-
-    if (y + imgHeight + 10 > 287) {
-      doc.addPage();
-      y = 15;
-      doc.setFontSize(11);
-      doc.text(label, margin, y);
-      y += 4;
-    }
-
-    doc.addImage(imgDataEl, 'PNG', margin, y, imgWidth, imgHeight);
-    y += imgHeight + 8;
-  } catch (e) {
-    console.error('Chart card to PDF error:', canvasId, e);
-  } finally {
-    // Restore original sizes
-    if (card) {
-      card.style.height = prev.cardHeight;
-      card.style.maxHeight = prev.cardMaxHeight;
-    }
-    canvas.style.height = prev.canvasHeight;
-    canvas.style.width = prev.canvasWidth;
-
-    const chart = (window.Chart && typeof window.Chart.getChart === 'function') ? window.Chart.getChart(canvas) : null;
-    if (chart) {
-      chart.resize();
-      chart.update('none');
-    } else if (typeof resizeCharts === 'function') {
-      resizeCharts();
-    }
-  }
-}
 }
 
 
 
     try { addChartImageByCanvasId('chart-volt-temp',   'Temperature vs time'); } catch (e) { console.error(e); }
     try { addChartImageByCanvasId('chart-hvel',        'Horizontal speed vs time'); } catch (e) { console.error(e); }
-    try { await addChartCardImageByCanvasId('chart-env', 'Environmental data (T, RH, p)', 380); } catch (e) { console.error(e); }
+    try { await addHighResEnvChart('chart-env',         'Environmental data (T, RH, p)'); } catch (e) { console.error(e); }
     try { addChartImageByCanvasId('chart-wind-profile','Wind profile'); } catch (e) { console.error(e); }
     try { addChartImageByCanvasId('chart-density',     'Air density vs altitude'); } catch (e) { console.error(e); }
     try { addChartImageByCanvasId('chart-signal-temp', 'RSSI and supply voltage vs temperature'); } catch (e) { console.error(e); }
@@ -3606,4 +3518,129 @@ function stopTelemetryAutoScroll() {
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
   else bind();
+
+
+
+/* === SONDEHUB_EXTRA_MODULE ===
+   * Pobiera dodatkowe dane z SondeHub TYLKO do 2 wykresów:
+   *  - chart-gnss: liczba satelitów GNSS w czasie
+   *  - chart-volt-temp: RSSI/SNR oraz bateria/napięcie vs temperatura (scatter)
+   *
+   * Nie dotyka fetch/merge radiosondy.info ani TTGO.
+   */
+  const SONDEHUB_POLL_MS = 10000; // 10 s (bezpiecznie dla API)
+  const SONDEHUB_MAX_POINTS = 600; // limit punktów w pamięci
+  const SONDEHUB_API_BASE = 'https://api.v2.sondehub.org';
+
+  function guessSondeHubSerial() {
+    // 1) jeśli w UI masz serial w elemencie tekstowym
+    const el = document.querySelector('[data-serial], #sonde-serial, .sonde-serial');
+    const txt = el ? (el.getAttribute('data-serial') || el.textContent || '') : '';
+    const s1 = (txt || '').trim();
+    if (s1) return s1;
+
+    // 2) fallback: użyj activeId (u Ciebie często to i tak serial)
+    if (state && state.activeId) return String(state.activeId);
+
+    return null;
+  }
+
+  function toMs(v) {
+    if (!v) return null;
+    if (typeof v === 'number') return v;
+    const d = new Date(v);
+    const t = d.getTime();
+    return Number.isFinite(t) ? t : null;
+  }
+
+  function normPoint(p) {
+    if (!p || typeof p !== 'object') return null;
+
+    // SondeHub zwykle ma datetime / time_received / timestamp
+    const t = toMs(p.datetime || p.time_received || p.time || p.timestamp || p.ts);
+    if (!t) return null;
+
+    // Różne możliwe nazwy pól
+    const sats = Number.isFinite(p.sats) ? p.sats
+      : Number.isFinite(p.satellites) ? p.satellites
+      : Number.isFinite(p.numSV) ? p.numSV
+      : Number.isFinite(p.num_sats) ? p.num_sats
+      : null;
+
+    const snr = Number.isFinite(p.snr) ? p.snr
+      : Number.isFinite(p.rssi) ? p.rssi
+      : Number.isFinite(p.rx_snr) ? p.rx_snr
+      : null;
+
+    const batt = Number.isFinite(p.batt) ? p.batt
+      : Number.isFinite(p.vbat) ? p.vbat
+      : Number.isFinite(p.voltage) ? p.voltage
+      : Number.isFinite(p.battery) ? p.battery
+      : null;
+
+    return { t, sats, snr, batt };
+  }
+
+  async function fetchSondeHubPoints(serial) {
+    // Endpoint: /sonde/{serial}
+    // Format odpowiedzi bywa różny (array / object z telemetry). Parsujemy defensywnie.
+    const url = `${SONDEHUB_API_BASE}/sonde/${encodeURIComponent(serial)}`;
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`SondeHub HTTP ${res.status}`);
+    const j = await res.json();
+
+    const arr =
+      Array.isArray(j) ? j :
+      Array.isArray(j?.telemetry) ? j.telemetry :
+      Array.isArray(j?.data) ? j.data :
+      Array.isArray(j?.positions) ? j.positions :
+      [];
+
+    // Normalizacja i filtr sensownych punktów
+    const pts = arr.map(normPoint).filter(Boolean);
+
+    // sort po czasie rosnąco
+    pts.sort((a, b) => a.t - b.t);
+    return pts;
+  }
+
+  async function updateSondeHubExtra() {
+    const serial = guessSondeHubSerial();
+    if (!serial) return;
+
+    // jeśli serial się zmienił, czyścimy bufor
+    if (state.sondehubExtra.serial !== serial) {
+      state.sondehubExtra.serial = serial;
+      state.sondehubExtra.points = [];
+    }
+
+    try {
+      const pts = await fetchSondeHubPoints(serial);
+
+      // merge (unikaj duplikatów po czasie)
+      const existing = state.sondehubExtra.points;
+      const seen = new Set(existing.map(p => p.t));
+      for (const p of pts) {
+        if (!seen.has(p.t)) {
+          existing.push(p);
+          seen.add(p.t);
+        }
+      }
+      existing.sort((a, b) => a.t - b.t);
+
+      // limit
+      if (existing.length > SONDEHUB_MAX_POINTS) {
+        state.sondehubExtra.points = existing.slice(existing.length - SONDEHUB_MAX_POINTS);
+      }
+    } catch (e) {
+      // cicho: nie psujemy reszty strony
+      // console.warn('SondeHub extra fetch failed:', e);
+    }
+  }
+
+  // polling
+  setInterval(updateSondeHubExtra, SONDEHUB_POLL_MS);
+  // pierwszy strzał po starcie
+  updateSondeHubExtra();
+
 })();
