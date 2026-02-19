@@ -1936,6 +1936,27 @@ function computeCapeCin(history) {
     if (Number.isFinite(p.batt)) battPts.push({ x: T, y: p.batt, t: p.t });
   }
 
+  // Dynamiczny opis + zakres osi dla RSSI/SNR (różne źródła mają różne jednostki)
+  if (rssiPts.length) {
+    let minV = Infinity, maxV = -Infinity;
+    for (const pt of rssiPts) { if (pt.y < minV) minV = pt.y; if (pt.y > maxV) maxV = pt.y; }
+    const ds = chart.data.datasets[0];
+
+    if (minV >= 0 && maxV <= 1.5) {
+      ds.label = 'SNR (rel.)';
+      chart.options.scales.y.min = 0;
+      chart.options.scales.y.max = 1;
+    } else if (minV >= -5 && maxV <= 60) {
+      ds.label = 'SNR [dB]';
+      chart.options.scales.y.min = Math.floor(minV - 2);
+      chart.options.scales.y.max = Math.ceil(maxV + 2);
+    } else {
+      ds.label = 'RSSI [dBm]';
+      chart.options.scales.y.min = Math.floor(minV - 5);
+      chart.options.scales.y.max = Math.ceil(maxV + 5);
+    }
+  }
+
   chart.data.datasets[0].data = rssiPts;
   chart.data.datasets[1].data = battPts;
   chart.update('none');
@@ -3565,11 +3586,22 @@ function stopTelemetryAutoScroll() {
       : Number.isFinite(p.satellites) ? p.satellites
       : Number.isFinite(p.numSV) ? p.numSV
       : Number.isFinite(p.num_sats) ? p.num_sats
+      : Number.isFinite(p.sats_used) ? p.sats_used
+      : Number.isFinite(p.sat_used) ? p.sat_used
+      : Number.isFinite(p.gps_sats) ? p.gps_sats
+      : Number.isFinite(p.gnss_sats) ? p.gnss_sats
+      : Number.isFinite(p.sats_total) ? p.sats_total
       : null;
 
-    const snr = Number.isFinite(p.snr) ? p.snr
-      : Number.isFinite(p.rssi) ? p.rssi
+    // RSSI/SNR: różne uploadery używają różnych pól.
+    // Priorytet: RSSI (zwykle ujemne dBm) -> rx_snr (często w dB) -> snr.
+    const snr = Number.isFinite(p.rssi) ? p.rssi
+      : Number.isFinite(p.rssi_dbm) ? p.rssi_dbm
+      : Number.isFinite(p.signal) ? p.signal
       : Number.isFinite(p.rx_snr) ? p.rx_snr
+      : Number.isFinite(p.rx_snr_db) ? p.rx_snr_db
+      : Number.isFinite(p.snr_db) ? p.snr_db
+      : Number.isFinite(p.snr) ? p.snr
       : null;
 
     const batt = Number.isFinite(p.batt) ? p.batt
