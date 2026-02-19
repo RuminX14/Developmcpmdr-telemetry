@@ -3111,7 +3111,7 @@ async function addHighResEnvChart(canvasId, label, tempHeightPx = 520, scale = 3
   }
 }
 
-function addElementImageBySelector(selector, label) {
+async function addElementImageBySelector(selector, label) {
   const el = document.querySelector(selector);
   if (!el) {
     console.warn('Element not found for PDF:', selector);
