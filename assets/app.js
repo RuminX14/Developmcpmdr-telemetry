@@ -1829,138 +1829,231 @@ function computeCapeCin(history) {
 
     
 (function () {
-  const id = 'chart-volt-temp';
 
-  const chart = ensureChart(id, () => ({
-    type: 'scatter',
-    data: {
-      datasets: [
-        {
-          label: 'RSSI/SNR vs Temperatura',
-          data: [],
-          showLine: false,
-          borderWidth: 1.5,
-          pointRadius: 2,
-          parsing: false,
-          yAxisID: 'y1'
-        },
-        {
-          label: 'Napięcie/Bateria vs Temperatura',
-          data: [],
-          showLine: false,
-          borderWidth: 1.5,
-          pointRadius: 2,
-          parsing: false,
-          yAxisID: 'y2'
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: false,
-      parsing: false,
-      scales: {
-        x: {
-          type: 'linear',
-          title: { display: true, text: 'Temperatura [°C]', color: '#e6ebff' },
-          grid: { color: 'rgba(134,144,176,.35)' },
-          ticks: { color: '#e6ebff' }
-        },
-        y1: {
-          type: 'linear',
-          position: 'left',
-          title: { display: true, text: 'RSSI / SNR', color: '#e6ebff' },
-          grid: { color: 'rgba(134,144,176,.35)' },
-          ticks: { color: '#e6ebff' }
-        },
-        y2: {
-          type: 'linear',
-          position: 'right',
-          grid: { display: false },
-          title: { display: true, text: 'Napięcie [V]', color: '#e6ebff' },
-          ticks: { color: '#e6ebff' }
-        }
-      },
-      plugins: {
-        tooltip: {
-          callbacks: {
-            label(ctx) {
-              const p = ctx.raw || {};
-              const T = Number.isFinite(p.x) ? p.x.toFixed(1) : '—';
-              const y = Number.isFinite(p.y) ? p.y.toFixed(2) : '—';
-              const t = p.t ? new Date(p.t).toLocaleTimeString() : null;
-              return t ? `${ctx.dataset.label}: ${y} (T: ${T}°C, t: ${t})` : `${ctx.dataset.label}: ${y} (T: ${T}°C)`;
+
+      const id = 'chart-volt-temp';
+
+
+      const chart = ensureChart(id, () => ({
+
+
+        type: 'scatter',
+
+
+        data: {
+
+
+          datasets: [
+
+
+            {
+
+
+              label: 'Temperatura [C] vs wysokosc [m]',
+
+
+              data: [],
+
+
+              showLine: true,
+
+
+              borderWidth: 1.5,
+
+
+              pointRadius: 2
+
+
             }
-          }
+
+
+          ]
+
+
         },
-        legend: { labels: { color: '#e6ebff' } }
-      }
-    }
-  }));
-  if (!chart) return;
 
-  // Historia z radiosondy.info: temp + czas (do dopasowania temperatury)
-  const histT = hist
-    .filter(h => h && h.time && Number.isFinite(h.temp))
-    .map(h => ({ t: h.time.getTime(), temp: h.temp }))
-    .sort((a, b) => a.t - b.t);
 
-  function nearestTemp(ms) {
-    if (!histT.length) return null;
-    // binary search
-    let lo = 0, hi = histT.length - 1;
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1;
-      if (histT[mid].t < ms) lo = mid + 1;
-      else hi = mid;
-    }
-    const i = lo;
-    const a = histT[i];
-    const b = histT[i - 1];
-    if (!b) return a.temp;
-    if (!a) return b.temp;
-    return (Math.abs(a.t - ms) < Math.abs(ms - b.t)) ? a.temp : b.temp;
-  }
+        options: {
 
-  const sh = state.sondehubExtra && Array.isArray(state.sondehubExtra.points) ? state.sondehubExtra.points : [];
 
-  const rssiPts = [];
-  const battPts = [];
+          responsive: true,
 
-  for (const p of sh) {
-    const T = nearestTemp(p.t);
-    if (!Number.isFinite(T)) continue;
 
-    if (Number.isFinite(p.snr)) rssiPts.push({ x: T, y: p.snr, t: p.t });
-    if (Number.isFinite(p.batt)) battPts.push({ x: T, y: p.batt, t: p.t });
-  }
+          maintainAspectRatio: false,
 
-  // Dynamiczny opis + zakres osi dla RSSI/SNR (różne źródła mają różne jednostki)
-  if (rssiPts.length) {
-    let minV = Infinity, maxV = -Infinity;
-    for (const pt of rssiPts) { if (pt.y < minV) minV = pt.y; if (pt.y > maxV) maxV = pt.y; }
-    const ds = chart.data.datasets[0];
 
-    if (minV >= 0 && maxV <= 1.5) {
-      ds.label = 'SNR (rel.)';
-      chart.options.scales.y.min = 0;
-      chart.options.scales.y.max = 1;
-    } else if (minV >= -5 && maxV <= 60) {
-      ds.label = 'SNR [dB]';
-      chart.options.scales.y.min = Math.floor(minV - 2);
-      chart.options.scales.y.max = Math.ceil(maxV + 2);
-    } else {
-      ds.label = 'RSSI [dBm]';
-      chart.options.scales.y.min = Math.floor(minV - 5);
-      chart.options.scales.y.max = Math.ceil(maxV + 5);
-    }
-  }
+          animation: false,
 
-  chart.data.datasets[0].data = rssiPts;
-  chart.data.datasets[1].data = battPts;
-  chart.update('none');
-})();
+
+          parsing: false,
+
+
+          scales: {
+
+
+            x: {
+
+
+              type: 'linear',
+
+
+              title: { display: true, text: 'Temperatura [C]', color: '#e6ebff' },
+
+
+              grid: { color: 'rgba(134,144,176,.35)' },
+
+
+              ticks: { color: '#e6ebff' }
+
+
+            },
+
+
+            y: {
+
+
+              type: 'linear',
+
+
+              title: { display: true, text: 'Wysokosc [m]', color: '#e6ebff' },
+
+
+              grid: { color: 'rgba(134,144,176,.35)' },
+
+
+              ticks: { color: '#e6ebff' }
+
+
+            }
+
+
+          },
+
+
+          plugins: {
+
+
+            tooltip: {
+
+
+              callbacks: {
+
+
+                label(ctx) {
+
+
+                  const p = ctx.raw || {};
+
+
+                  const T = Number.isFinite(p.x) ? p.x.toFixed(1) : '—';
+
+
+                  const z = Number.isFinite(p.y) ? p.y.toFixed(0) : '—';
+
+
+                  const t = p.t ? new Date(p.t).toLocaleTimeString() : null;
+
+
+                  return t
+
+
+                    ? `T: ${T} C, z: ${z} m, t: ${t}`
+
+
+                    : `T: ${T} C, z: ${z} m`;
+
+
+                }
+
+
+              }
+
+
+            },
+
+
+            legend: { labels: { color: '#e6ebff' } }
+
+
+          }
+
+
+        }
+
+
+      }));
+
+
+      if (!chart) return;
+
+
+
+      const data = hist
+
+
+        .filter(h => Number.isFinite(h.temp) && Number.isFinite(h.alt))
+
+
+        .map(h => ({
+
+
+          x: h.temp,
+
+
+          y: h.alt,
+
+
+          t: h.time.getTime()
+
+
+        }))
+
+
+        .sort((a, b) => a.y - b.y);
+
+
+
+      chart.data.datasets[0].data = data;
+
+
+      chart.update('none');
+
+
+    })();// 2) GNSS – placeholder
+    (function () {
+      const id = 'chart-gnss';
+      const chart = ensureChart(id, () => ({
+        type: 'line',
+        data: {
+          datasets: [
+            {
+              label: 'Liczba satelitów GNSS',
+              data: [],
+              borderWidth: 1.5,
+              pointRadius: 0
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          parsing: false,
+          scales: {
+            x: timeScaleOptions('Czas'),
+            y: commonY('Liczba satelitów')
+          },
+          plugins: {
+            tooltip: tooltipWithAltitude(),
+            legend: { labels: { color: '#e6ebff' } }
+          }
+        }
+      }));
+      if (!chart) return;
+
+      chart.data.datasets[0].data = [];
+      chart.update('none');
+    })();
 
 // 2) GNSS – placeholder// 2) GNSS – placeholder
     (function () {
