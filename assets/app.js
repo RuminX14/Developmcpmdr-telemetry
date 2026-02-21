@@ -1861,7 +1861,9 @@ function computeCapeCin(history) {
               borderWidth: 1.5,
 
 
-              pointRadius: 2
+              pointRadius: 2,
+
+              clip: 0
 
 
             }
@@ -2122,7 +2124,9 @@ function computeCapeCin(history) {
 
               borderWidth: 1.2,
 
-              pointRadius: 2
+              pointRadius: 2,
+
+              clip: 0
 
             },
 
@@ -2140,7 +2144,9 @@ function computeCapeCin(history) {
 
               borderWidth: 1.2,
 
-              pointRadius: 2
+              pointRadius: 2,
+
+              clip: 0
 
             },
 
@@ -2158,7 +2164,9 @@ function computeCapeCin(history) {
 
               borderWidth: 1.2,
 
-              pointRadius: 2
+              pointRadius: 2,
+
+              clip: 0
 
             }
 
@@ -2502,7 +2510,8 @@ function computeCapeCin(history) {
               data: [],
               borderWidth: 1.2,
               pointRadius: 3,
-              showLine: true
+              showLine: true,
+              clip: 0
             }
           ]
         },
@@ -3769,3 +3778,4 @@ function stopTelemetryAutoScroll() {
   updateSondeHubExtra();
 
 })();
+
