@@ -2020,43 +2020,6 @@ function computeCapeCin(history) {
 
       chart.update('none');
 
-
-    })();// 2) GNSS – placeholder
-    (function () {
-      const id = 'chart-gnss';
-      const chart = ensureChart(id, () => ({
-        type: 'line',
-        data: {
-          datasets: [
-            {
-              label: 'Liczba satelitów GNSS',
-              data: [],
-              borderWidth: 1.5,
-              pointRadius: 0
-            }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          animation: false,
-          parsing: false,
-          scales: {
-            x: timeScaleOptions('Czas'),
-            y: commonY('Liczba satelitów')
-          },
-          plugins: {
-            tooltip: tooltipWithAltitude(),
-            legend: { labels: { color: '#e6ebff' } }
-          }
-        }
-      }));
-      if (!chart) return;
-
-      chart.data.datasets[0].data = [];
-      chart.update('none');
-    })();
-
 // 2) GNSS – placeholder// 2) GNSS – placeholder
     (function () {
       const id = 'chart-gnss';
