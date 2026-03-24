@@ -2020,7 +2020,8 @@ function computeCapeCin(history) {
 
       chart.update('none');
 
-// 2) GNSS – placeholder// 2) GNSS – placeholder
+
+    })();// 2) GNSS – dane z SondeHub// 2) GNSS – placeholder
     (function () {
       const id = 'chart-gnss';
       const chart = ensureChart(id, () => ({
@@ -3741,4 +3742,3 @@ function stopTelemetryAutoScroll() {
   updateSondeHubExtra();
 
 })();
-
