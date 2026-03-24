@@ -1849,7 +1849,7 @@ function computeCapeCin(history) {
             {
 
 
-              label: 'Temperatura [C] vs wysokosc [m]',
+              label: 'Temperatura [°C]',
 
 
               data: [],
