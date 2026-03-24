@@ -1863,7 +1863,7 @@ function computeCapeCin(history) {
 
               pointRadius: 2,
 
-              clip: 0
+              clip: true
 
 
             }
@@ -2089,7 +2089,7 @@ function computeCapeCin(history) {
 
               pointRadius: 2,
 
-              clip: 0
+              clip: true
 
             },
 
@@ -2109,7 +2109,7 @@ function computeCapeCin(history) {
 
               pointRadius: 2,
 
-              clip: 0
+              clip: true
 
             },
 
@@ -2129,7 +2129,7 @@ function computeCapeCin(history) {
 
               pointRadius: 2,
 
-              clip: 0
+              clip: true
 
             }
 
@@ -2474,7 +2474,7 @@ function computeCapeCin(history) {
               borderWidth: 1.2,
               pointRadius: 3,
               showLine: true,
-              clip: 0
+              clip: true
             }
           ]
         },
