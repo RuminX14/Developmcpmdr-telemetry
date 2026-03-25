@@ -1494,63 +1494,70 @@ function computeCapeCin(history) {
       ctx.stroke();
     }
 
-// === SUCHE ADIABATY (poprawione fizycznie) ===
-if (activeLayers.has('thermo')) {
-  ctx.lineWidth = 1;
+    // --- suche adiabaty ---
+    if (showThermo) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,184,108,0.45)';
+      ctx.lineWidth = 0.8;
+      ctx.setLineDash([6, 4]);
 
-  const thetaLevels = [260, 280, 300, 320, 340]; // potencjalna temperatura [K]
-
-  thetaLevels.forEach(theta => {
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-    ctx.beginPath();
-
-    let first = true;
-
-    for (let p = pMin; p <= pMax; p += 10) {
-      const T = theta * Math.pow(p / 1000, 0.286) - 273.15;
-
-      const { x, y } = toXY(p, T);
-      if (first) {
-        ctx.moveTo(x, y);
-        first = false;
-      } else {
-        ctx.lineTo(x, y);
+      for (let theta = 280; theta <= 360; theta += 10) {
+        let first = true;
+        ctx.beginPath();
+        for (let p = pMax; p >= pMin; p -= 10) {
+          const Tk = theta / Math.pow(1000 / p, 0.2854);
+          const T = Tk - 273.15;
+          const x = xForT(T, p);
+          const y = yForP(p);
+          if (first) {
+            ctx.moveTo(x, y);
+            first = false;
+          } else {
+            ctx.lineTo(x, y);
+          }
+        }
+        ctx.stroke();
       }
+
+      ctx.restore();
     }
 
-    ctx.stroke();
-  });
-}
+    // --- linie mieszania (lepsze przybliżenie fizyczne) ---
+    if (showThermo) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(123,255,176,0.35)';
+      ctx.lineWidth = 0.8;
+      ctx.setLineDash([2, 4]);
 
-// === LINIE MIESZANIA (lepsze przybliżenie) ===
-if (activeLayers.has('thermo')) {
-  ctx.lineWidth = 1;
+      const wValues = [0.4, 1, 2, 4, 8, 12, 16]; // g/kg
 
-  const mixingRatios = [0.4, 1, 2, 4, 8, 12]; // g/kg
+      for (const w of wValues) {
+        let first = true;
+        ctx.beginPath();
 
-  mixingRatios.forEach(w => {
-    ctx.strokeStyle = 'rgba(100,180,255,0.25)';
-    ctx.beginPath();
+        for (let p = pMax; p >= pMin; p -= 10) {
+          const e = (w * p) / (622 + w); // hPa
+          if (!(e > 0 && e < p)) continue;
 
-    let first = true;
+          const lnRatio = Math.log(e / 6.112);
+          const Td = (243.5 * lnRatio) / (17.67 - lnRatio);
+          if (!Number.isFinite(Td)) continue;
 
-    for (let p = pMin; p <= pMax; p += 10) {
-      // przybliżenie temperatury punktu rosy dla danego mixing ratio
-      const e = (w * p) / (622 + w); // hPa
-      const Td = (243.5 * Math.log(e / 6.112)) / (17.67 - Math.log(e / 6.112));
+          const x = xForT(Td, p);
+          const y = yForP(p);
+          if (first) {
+            ctx.moveTo(x, y);
+            first = false;
+          } else {
+            ctx.lineTo(x, y);
+          }
+        }
 
-      const { x, y } = toXY(p, Td);
-      if (first) {
-        ctx.moveTo(x, y);
-        first = false;
-      } else {
-        ctx.lineTo(x, y);
+        if (!first) ctx.stroke();
       }
-    }
 
-    ctx.stroke();
-  });
-}
+      ctx.restore();
+    }
 
     // --- LCL ---
     if (showConv && Number.isFinite(s.lclHeight)) {
@@ -1849,7 +1856,7 @@ if (activeLayers.has('thermo')) {
             {
 
 
-              label: 'Temperatura [°C]',
+              label: 'Temperatura [C]',
 
 
               data: [],
@@ -2021,7 +2028,7 @@ if (activeLayers.has('thermo')) {
       chart.update('none');
 
 
-    })();// 2) GNSS – dane z SondeHub// 2) GNSS – placeholder
+    })();// 2) GNSS – placeholder// 2) GNSS – placeholder
     (function () {
       const id = 'chart-gnss';
       const chart = ensureChart(id, () => ({
