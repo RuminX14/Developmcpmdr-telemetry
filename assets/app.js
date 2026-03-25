@@ -1494,63 +1494,63 @@ function computeCapeCin(history) {
       ctx.stroke();
     }
 
-    // --- suche adiabaty ---
-    if (showThermo) {
-      ctx.save();
-      ctx.strokeStyle = 'rgba(255,184,108,0.45)';
-      ctx.lineWidth = 0.8;
-      ctx.setLineDash([6, 4]);
+// === SUCHE ADIABATY (poprawione fizycznie) ===
+if (activeLayers.has('thermo')) {
+  ctx.lineWidth = 1;
 
-      for (let theta = 280; theta <= 360; theta += 10) {
-        let first = true;
-        ctx.beginPath();
-        for (let p = pMax; p >= pMin; p -= 10) {
-          const Tk = theta / Math.pow(1000 / p, 0.2854);
-          const T = Tk - 273.15;
-          const x = xForT(T, p);
-          const y = yForP(p);
-          if (first) {
-            ctx.moveTo(x, y);
-            first = false;
-          } else {
-            ctx.lineTo(x, y);
-          }
-        }
-        ctx.stroke();
+  const thetaLevels = [260, 280, 300, 320, 340]; // potencjalna temperatura [K]
+
+  thetaLevels.forEach(theta => {
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.beginPath();
+
+    let first = true;
+
+    for (let p = pMin; p <= pMax; p += 10) {
+      const T = theta * Math.pow(p / 1000, 0.286) - 273.15;
+
+      const { x, y } = toXY(p, T);
+      if (first) {
+        ctx.moveTo(x, y);
+        first = false;
+      } else {
+        ctx.lineTo(x, y);
       }
-
-      ctx.restore();
     }
 
-    // --- linie mieszania (przybliżone) ---
-    if (showThermo) {
-      ctx.save();
-      ctx.strokeStyle = 'rgba(123,255,176,0.35)';
-      ctx.lineWidth = 0.8;
-      ctx.setLineDash([2, 4]);
+    ctx.stroke();
+  });
+}
 
-      const wValues = [2, 4, 8, 12, 16]; // g/kg
-      const mixTop = Math.max(pMin, 400);
-      const mixBottom = pMax;
-      for (const w of wValues) {
-        let first = true;
-        ctx.beginPath();
-        for (let p = mixBottom; p >= mixTop; p -= 10) {
-          const Td = 5 + 8 * Math.log(w) - 0.005 * (p - 1000);
-          const x = xForT(Td, p);
-          const y = yForP(p);
-          if (first) {
-            ctx.moveTo(x, y);
-            first = false;
-          } else {
-            ctx.lineTo(x, y);
-          }
-        }
-        ctx.stroke();
+// === LINIE MIESZANIA (lepsze przybliżenie) ===
+if (activeLayers.has('thermo')) {
+  ctx.lineWidth = 1;
+
+  const mixingRatios = [0.4, 1, 2, 4, 8, 12]; // g/kg
+
+  mixingRatios.forEach(w => {
+    ctx.strokeStyle = 'rgba(100,180,255,0.25)';
+    ctx.beginPath();
+
+    let first = true;
+
+    for (let p = pMin; p <= pMax; p += 10) {
+      // przybliżenie temperatury punktu rosy dla danego mixing ratio
+      const e = (w * p) / (622 + w); // hPa
+      const Td = (243.5 * Math.log(e / 6.112)) / (17.67 - Math.log(e / 6.112));
+
+      const { x, y } = toXY(p, Td);
+      if (first) {
+        ctx.moveTo(x, y);
+        first = false;
+      } else {
+        ctx.lineTo(x, y);
       }
-
-      ctx.restore();
     }
+
+    ctx.stroke();
+  });
+}
 
     // --- LCL ---
     if (showConv && Number.isFinite(s.lclHeight)) {
