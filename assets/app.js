@@ -1856,7 +1856,7 @@ function computeCapeCin(history) {
             {
 
 
-              label: 'Temperatura [C]',
+              label: 'Temperatura [°C]',
 
 
               data: [],
@@ -2083,7 +2083,7 @@ function computeCapeCin(history) {
 
             {
 
-              label: 'Temperatura [C]',
+              label: 'Temperatura [°C]',
 
               xAxisID: 'xTemp',
 
@@ -3263,7 +3263,7 @@ try { addChartImageByCanvasId('chart-gnss',       'GNSS data'); } catch (e) { co
 try { addChartImageByCanvasId('chart-skewt',      'Skew-T Log-P'); } catch (e) { console.error(e); }
 
 // Indicator cards / boxes (non-canvas)
-await addElementImageBySelector('#stability-box',     'Stability (box)');
+await addElementImageBySelector('.stability-box',     'Stability (box)');
 await addElementImageBySelector('#cape-cin-card',     'CAPE / CIN');
 await addElementImageBySelector('#visibility-card',   'Visibility estimate');
 await addElementImageBySelector('.visibility-card',   'Visibility estimate');
