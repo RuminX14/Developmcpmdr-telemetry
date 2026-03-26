@@ -1522,27 +1522,21 @@ function computeCapeCin(history) {
       ctx.restore();
     }
 
-    // --- linie mieszania (lepsze przybliżenie fizyczne) ---
+    // --- linie mieszania (przybliżone) ---
     if (showThermo) {
       ctx.save();
       ctx.strokeStyle = 'rgba(123,255,176,0.35)';
       ctx.lineWidth = 0.8;
       ctx.setLineDash([2, 4]);
 
-      const wValues = [0.4, 1, 2, 4, 8, 12, 16]; // g/kg
-
+      const wValues = [2, 4, 8, 12, 16]; // g/kg
+      const mixTop = Math.max(pMin, 400);
+      const mixBottom = pMax;
       for (const w of wValues) {
         let first = true;
         ctx.beginPath();
-
-        for (let p = pMax; p >= pMin; p -= 10) {
-          const e = (w * p) / (622 + w); // hPa
-          if (!(e > 0 && e < p)) continue;
-
-          const lnRatio = Math.log(e / 6.112);
-          const Td = (243.5 * lnRatio) / (17.67 - lnRatio);
-          if (!Number.isFinite(Td)) continue;
-
+        for (let p = mixBottom; p >= mixTop; p -= 10) {
+          const Td = 5 + 8 * Math.log(w) - 0.005 * (p - 1000);
           const x = xForT(Td, p);
           const y = yForP(p);
           if (first) {
@@ -1552,8 +1546,7 @@ function computeCapeCin(history) {
             ctx.lineTo(x, y);
           }
         }
-
-        if (!first) ctx.stroke();
+        ctx.stroke();
       }
 
       ctx.restore();
@@ -1856,7 +1849,7 @@ function computeCapeCin(history) {
             {
 
 
-              label: 'Temperatura [C]',
+              label: 'Temperatura [°C]',
 
 
               data: [],
@@ -2083,7 +2076,7 @@ function computeCapeCin(history) {
 
             {
 
-              label: 'Temperatura [C]',
+              label: 'Temperatura [°C]',
 
               xAxisID: 'xTemp',
 
@@ -3263,7 +3256,7 @@ try { addChartImageByCanvasId('chart-gnss',       'GNSS data'); } catch (e) { co
 try { addChartImageByCanvasId('chart-skewt',      'Skew-T Log-P'); } catch (e) { console.error(e); }
 
 // Indicator cards / boxes (non-canvas)
-await addElementImageBySelector('#stability-box',     'Stability (box)');
+await addElementImageBySelector('.stability-box',     'Stability (box)');
 await addElementImageBySelector('#cape-cin-card',     'CAPE / CIN');
 await addElementImageBySelector('#visibility-card',   'Visibility estimate');
 await addElementImageBySelector('.visibility-card',   'Visibility estimate');
@@ -3549,8 +3542,6 @@ function stopTelemetryAutoScroll() {
     slidesCache = slides;
     slideIndex = 0;
     paused = false;
-    slidesCache = [];
-    slideIndex = 0;
 
     if (!slidesCache.length) {
       console.warn('Brak slajdów do prezentacji.');
