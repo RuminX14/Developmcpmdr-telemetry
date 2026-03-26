@@ -1413,8 +1413,26 @@ function renderSkewT(s) {
     ctx.fillStyle = '#050814';
     ctx.fillRect(0, 0, width, height);
 
-    const analysis = s ? buildThermoAnalysis(s.history || []) : null;
-    const hist = analysis ? analysis.levels : [];
+    const rawHistory = s && Array.isArray(s.history) ? s.history : [];
+    const histBasic = rawHistory
+      .filter(h => Number.isFinite(h?.pressure) && Number.isFinite(h?.temp))
+      .map(h => ({
+        p: Number(h.pressure),
+        temp: Number(h.temp),
+        dew: Number.isFinite(h.dew) ? Number(h.dew) : dewPoint(Number(h.temp), Number(h.humidity)),
+        alt: Number(h.alt),
+        humidity: Number(h.humidity),
+        windSpeed: Number(h.windSpeed),
+        windDir: Number(h.windDir),
+        time: h.time
+      }))
+      .filter(h => Number.isFinite(h.p) && h.p > 20 && h.p < 1100 && Number.isFinite(h.temp))
+      .sort((a, b) => b.p - a.p);
+
+    const analysis = buildThermoAnalysis(rawHistory);
+    const hist = (analysis && Array.isArray(analysis.levels) && analysis.levels.length)
+      ? analysis.levels
+      : histBasic;
 
     if (!hist.length) {
       ctx.strokeStyle = 'rgba(134,144,176,0.7)';
@@ -1423,7 +1441,7 @@ function renderSkewT(s) {
 
       ctx.fillStyle = '#8a94b0';
       ctx.font = '12px system-ui, sans-serif';
-      ctx.fillText('Brak punktów z pełnymi danymi T / Td / p', left + 12, top + 24);
+      ctx.fillText('Brak punktów z pełnymi danymi T / p', left + 12, top + 24);
       return;
     }
 
@@ -1434,9 +1452,7 @@ function renderSkewT(s) {
 
     pMin = Math.max(70, Math.floor(dataPMin / 25) * 25);
     pMax = Math.min(1050, Math.ceil(dataPMax / 25) * 25);
-    if (pMax - pMin < 300) {
-      pMin = Math.max(70, pMax - 300);
-    }
+    if (pMax - pMin < 300) pMin = Math.max(70, pMax - 300);
 
     let dataTMin = Infinity;
     let dataTMax = -Infinity;
@@ -1449,7 +1465,7 @@ function renderSkewT(s) {
         dataTMin = Math.min(dataTMin, h.dew);
         dataTMax = Math.max(dataTMax, h.dew);
       }
-      if (Number.isFinite(h.parcelTc)) {
+      if (analysis && Number.isFinite(h.parcelTc)) {
         dataTMin = Math.min(dataTMin, h.parcelTc);
         dataTMax = Math.max(dataTMax, h.parcelTc);
       }
@@ -1502,11 +1518,12 @@ function renderSkewT(s) {
           ctx.lineTo(x, y);
         }
       }
-      ctx.stroke();
+      if (started) ctx.stroke();
       ctx.restore();
     }
 
     function shadeBuoyancy(kind, fillStyle) {
+      if (!analysis) return;
       ctx.save();
       ctx.fillStyle = fillStyle;
       for (let i = 1; i < hist.length; i++) {
@@ -1579,7 +1596,6 @@ function renderSkewT(s) {
     ctx.rect(left, top, plotW, plotH);
     ctx.clip();
 
-    // isobary
     ctx.strokeStyle = 'rgba(134,144,176,0.35)';
     ctx.lineWidth = 1;
     for (let p = pGridMax; p >= pGridMin; p -= pStepMajor) {
@@ -1590,7 +1606,6 @@ function renderSkewT(s) {
       ctx.stroke();
     }
 
-    // izotermy
     ctx.strokeStyle = 'rgba(134,144,176,0.28)';
     ctx.setLineDash([4, 4]);
     for (let T = tGridMin; T <= tGridMax; T += tStep) {
@@ -1611,7 +1626,6 @@ function renderSkewT(s) {
     ctx.setLineDash([]);
 
     if (showThermo) {
-      // suche adiabaty / izolinie theta
       ctx.save();
       ctx.strokeStyle = 'rgba(255,184,108,0.45)';
       ctx.lineWidth = 0.8;
@@ -1635,42 +1649,42 @@ function renderSkewT(s) {
       }
       ctx.restore();
 
-      // wilgotne adiabaty
-      ctx.save();
-      ctx.strokeStyle = 'rgba(173,216,255,0.28)';
-      ctx.lineWidth = 0.8;
-      ctx.setLineDash([1.5, 3.5]);
-      const moistStarts = [];
-      for (let t = -10; t <= 40; t += 5) moistStarts.push(t);
-      const pStart = Math.min(1000, pMax);
-      for (const startT of moistStarts) {
-        let pCur = pStart;
-        let TCur = startT + 273.15;
-        ctx.beginPath();
-        let first = true;
-        while (pCur >= pMin) {
-          const x = xForT(TCur - 273.15, pCur);
-          const y = yForP(pCur);
-          if (first) {
-            ctx.moveTo(x, y);
-            first = false;
-          } else {
-            ctx.lineTo(x, y);
+      if (analysis) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(173,216,255,0.28)';
+        ctx.lineWidth = 0.8;
+        ctx.setLineDash([1.5, 3.5]);
+        const moistStarts = [];
+        for (let t = -10; t <= 40; t += 5) moistStarts.push(t);
+        const pStart = Math.min(1000, pMax);
+        for (const startT of moistStarts) {
+          let pCur = pStart;
+          let TCur = startT + 273.15;
+          ctx.beginPath();
+          let first = true;
+          while (pCur >= pMin) {
+            const x = xForT(TCur - 273.15, pCur);
+            const y = yForP(pCur);
+            if (first) {
+              ctx.moveTo(x, y);
+              first = false;
+            } else {
+              ctx.lineTo(x, y);
+            }
+            const pNext = pCur - 10;
+            if (pNext < pMin) break;
+            const ws = saturationMixingRatio(pCur, TCur - 273.15);
+            const TvPar = virtualTemperatureK(TCur, ws);
+            const dz = -287.05 * TvPar / 9.80665 * Math.log(pNext / pCur);
+            const gammaM = moistAdiabaticLapseKPerM(TCur, pCur);
+            TCur -= gammaM * dz;
+            pCur = pNext;
           }
-          const pNext = pCur - 10;
-          if (pNext < pMin) break;
-          const ws = saturationMixingRatio(pCur, TCur - 273.15);
-          const TvPar = virtualTemperatureK(TCur, ws);
-          const dz = -287.05 * TvPar / 9.80665 * Math.log(pNext / pCur);
-          const gammaM = moistAdiabaticLapseKPerM(TCur, pCur);
-          TCur -= gammaM * dz;
-          pCur = pNext;
+          ctx.stroke();
         }
-        ctx.stroke();
+        ctx.restore();
       }
-      ctx.restore();
 
-      // linie mieszania
       ctx.save();
       ctx.strokeStyle = 'rgba(123,255,176,0.34)';
       ctx.lineWidth = 0.8;
@@ -1697,7 +1711,6 @@ function renderSkewT(s) {
     }
 
     if (showMarine) {
-      // warstwy bliskie nasyceniu
       ctx.save();
       ctx.fillStyle = 'rgba(230,235,255,0.08)';
       for (let i = 1; i < hist.length; i++) {
@@ -1714,7 +1727,6 @@ function renderSkewT(s) {
       }
       ctx.restore();
 
-      // inwersje temperatury
       ctx.save();
       ctx.fillStyle = 'rgba(61,212,255,0.10)';
       for (let i = 1; i < hist.length; i++) {
@@ -1730,11 +1742,10 @@ function renderSkewT(s) {
       ctx.restore();
     }
 
-    if (showConv) {
+    if (showConv && analysis) {
       shadeBuoyancy('neg', 'rgba(61,212,255,0.12)');
       shadeBuoyancy('pos', 'rgba(255,84,112,0.16)');
 
-      // parcel path
       ctx.save();
       ctx.strokeStyle = '#ff7df2';
       ctx.lineWidth = 1.6;
@@ -1751,16 +1762,16 @@ function renderSkewT(s) {
           ctx.lineTo(x, y);
         }
       }
-      ctx.stroke();
+      if (!first) ctx.stroke();
       ctx.restore();
     }
 
     if (showBasic) {
       drawPath(hist.map(h => ({ temp: h.temp, pressure: h.p })), '#ffb86c', 2);
-      drawPath(hist.map(h => ({ temp: h.dew, pressure: h.p })), '#7bffb0', 1.6);
+      const dewPts = hist.filter(h => Number.isFinite(h.dew)).map(h => ({ temp: h.dew, pressure: h.p }));
+      drawPath(dewPts, '#7bffb0', 1.6);
     }
 
-    // 0°C
     if (showMarine || showConv) {
       ctx.save();
       ctx.strokeStyle = '#3dd4ff';
@@ -1799,13 +1810,13 @@ function renderSkewT(s) {
       ctx.restore();
     };
 
-    if (showConv) {
+    if (showConv && analysis) {
       drawLevelMark(analysis.lcl, 'LCL', '#ffffff');
       drawLevelMark(analysis.lfc, 'LFC', '#ffd166');
       drawLevelMark(analysis.el, 'EL', '#ff5470');
     }
 
-    ctx.restore(); // clip end
+    ctx.restore();
 
     ctx.strokeStyle = 'rgba(134,144,176,0.7)';
     ctx.lineWidth = 1;
@@ -1820,9 +1831,7 @@ function renderSkewT(s) {
 
     for (let T = tGridMin; T <= tGridMax; T += tStep) {
       const xLabel = xForT(T, pMax);
-      if (xLabel > left && xLabel < left + plotW) {
-        ctx.fillText(T.toString(), xLabel - 8, height - 6);
-      }
+      if (xLabel > left && xLabel < left + plotW) ctx.fillText(T.toString(), xLabel - 8, height - 6);
     }
 
     if (showWind) {
@@ -1884,9 +1893,8 @@ function renderSkewT(s) {
             const b = best;
             const dt = (b.time - a.time) / 1000;
             if (dt > 0 &&
-                Number.isFinite(a.alt) && Number.isFinite(b.alt) &&
-                Number.isFinite(a.p) && Number.isFinite(b.p) &&
-                Number.isFinite(a.temp) && Number.isFinite(b.temp)) {
+                Number.isFinite(a.lat) && Number.isFinite(a.lon) &&
+                Number.isFinite(b.lat) && Number.isFinite(b.lon)) {
               const dH = haversine(a.lat, a.lon, b.lat, b.lon);
               speed = dH / dt;
               dir = bearing(a.lat, a.lon, b.lat, b.lon);
@@ -1897,7 +1905,6 @@ function renderSkewT(s) {
         if (!Number.isFinite(speed) || !Number.isFinite(dir)) continue;
         drawArrow(yForP(best.p), speed, dir);
       }
-
       ctx.restore();
     }
 
@@ -1909,7 +1916,6 @@ function renderSkewT(s) {
     const drawLegend = (color, label, dash = []) => {
       ctx.save();
       ctx.strokeStyle = color;
-      ctx.fillStyle = color;
       ctx.lineWidth = 2;
       ctx.setLineDash(dash);
       ctx.beginPath();
@@ -1924,31 +1930,30 @@ function renderSkewT(s) {
 
     if (showBasic) {
       drawLegend('#ffb86c', 'T');
-      drawLegend('#7bffb0', 'Td');
+      if (hist.some(h => Number.isFinite(h.dew))) drawLegend('#7bffb0', 'Td');
     }
     if (showThermo) {
-      drawLegend('rgba(255,184,108,0.85)', 'Suche adiabaty', [6, 4]);
-      drawLegend('rgba(173,216,255,0.85)', 'Wilgotne adiabaty', [1.5, 3.5]);
-      drawLegend('rgba(123,255,176,0.85)', 'Linie mieszania', [2, 4]);
+      drawLegend('rgba(255,184,108,0.8)', 'Suche adiabaty', [6, 4]);
+      if (analysis) drawLegend('rgba(173,216,255,0.8)', 'Wilgotne adiabaty', [1.5, 3.5]);
+      drawLegend('rgba(123,255,176,0.8)', 'Linie mieszania', [2, 4]);
     }
-    if (showConv) {
+    if (showConv && analysis) {
       drawLegend('#ff7df2', 'Parcel');
       drawLegend('#ffffff', 'LCL');
       drawLegend('#ffd166', 'LFC');
       drawLegend('#ff5470', 'EL');
     }
-    if (showMarine) {
-      drawLegend('#3dd4ff', '0°C', [2, 2]);
-    }
-    if (showWind) {
-      drawLegend('#e6ebff', 'Wiatr');
-    }
+    if (showMarine || showConv) drawLegend('#3dd4ff', '0°C', [2, 2]);
+    if (showWind) drawLegend('#e6ebff', 'Wiatr');
 
     ctx.fillStyle = '#8a94b0';
     ctx.font = '10px system-ui, sans-serif';
-    ctx.fillText('Skew-T log-p (T / Td / parcel vs p)', left + 8, top + plotH + 18);
+    ctx.fillText(
+      analysis ? 'Skew-T log-p (T / Td / parcel vs p)' : 'Skew-T log-p (T / p)',
+      left + 8,
+      top + plotH + 18
+    );
   }
-
 function resizeCharts() {
     Object.values(state.charts).forEach(c => c && c.resize());
     if (state.miniMap) {
