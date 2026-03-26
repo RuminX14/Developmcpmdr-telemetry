@@ -1494,35 +1494,8 @@ function computeCapeCin(history) {
       ctx.stroke();
     }
 
-    // --- suche adiabaty + wilgotne adiabaty + linie mieszania ---
+    // --- suche adiabaty ---
     if (showThermo) {
-      const Rd = 287.05;
-      const cp = 1004.0;
-      const kappa = Rd / cp;
-      const g = 9.80665;
-      const eps = 0.622;
-      const Lv = 2.5e6;
-
-      function es_hPa(Tc) {
-        return 6.112 * Math.exp((17.67 * Tc) / (Tc + 243.5));
-      }
-
-      function ws_kgkg(p_hPa, Tc) {
-        const e = es_hPa(Tc);
-        return (eps * e) / Math.max(1e-6, (p_hPa - e));
-      }
-
-      function moistStepTempK(Tk, pCur, pNext) {
-        const Tc = Tk - 273.15;
-        const ws = ws_kgkg(pCur, Tc);
-        const num = 1 + (Lv * ws) / (Rd * Tk);
-        const den = cp + (Lv * Lv * ws * eps) / (Rd * Tk * Tk);
-        const dT_dlnp = kappa * Tk * (num / den);
-        const dlnp = Math.log(pNext / pCur);
-        return Tk + dT_dlnp * dlnp;
-      }
-
-      // Suche adiabaty
       ctx.save();
       ctx.strokeStyle = 'rgba(255,184,108,0.45)';
       ctx.lineWidth = 0.8;
@@ -1532,7 +1505,7 @@ function computeCapeCin(history) {
         let first = true;
         ctx.beginPath();
         for (let p = pMax; p >= pMin; p -= 10) {
-          const Tk = theta / Math.pow(1000 / p, kappa);
+          const Tk = theta / Math.pow(1000 / p, 0.2854);
           const T = Tk - 273.15;
           const x = xForT(T, p);
           const y = yForP(p);
@@ -1545,63 +1518,25 @@ function computeCapeCin(history) {
         }
         ctx.stroke();
       }
+
       ctx.restore();
+    }
 
-      // Wilgotne adiabaty (przybliżenie krokowe)
-      ctx.save();
-      ctx.strokeStyle = 'rgba(61,212,255,0.28)';
-      ctx.lineWidth = 0.8;
-      ctx.setLineDash([1, 3]);
-
-      const moistStarts = [-20, -10, 0, 10, 20, 30];
-      for (const t0 of moistStarts) {
-        let first = true;
-        let Tk = t0 + 273.15;
-        let pCur = pMax;
-
-        ctx.beginPath();
-        for (let pNext = pMax; pNext >= pMin; pNext -= 10) {
-          if (pNext < pCur) {
-            Tk = moistStepTempK(Tk, pCur, pNext);
-            pCur = pNext;
-          }
-
-          const Tc = Tk - 273.15;
-          if (!Number.isFinite(Tc)) continue;
-
-          const x = xForT(Tc, pCur);
-          const y = yForP(pCur);
-          if (first) {
-            ctx.moveTo(x, y);
-            first = false;
-          } else {
-            ctx.lineTo(x, y);
-          }
-        }
-        if (!first) ctx.stroke();
-      }
-      ctx.restore();
-
-      // Linie mieszania
+    // --- linie mieszania (przybliżone) ---
+    if (showThermo) {
       ctx.save();
       ctx.strokeStyle = 'rgba(123,255,176,0.35)';
       ctx.lineWidth = 0.8;
       ctx.setLineDash([2, 4]);
 
-      const wValues = [0.4, 1, 2, 4, 8, 12, 16]; // g/kg
-
+      const wValues = [2, 4, 8, 12, 16]; // g/kg
+      const mixTop = Math.max(pMin, 400);
+      const mixBottom = pMax;
       for (const w of wValues) {
         let first = true;
         ctx.beginPath();
-
-        for (let p = pMax; p >= pMin; p -= 10) {
-          const e = (w * p) / (622 + w); // hPa
-          if (!(e > 0 && e < p)) continue;
-
-          const lnRatio = Math.log(e / 6.112);
-          const Td = (243.5 * lnRatio) / (17.67 - lnRatio);
-          if (!Number.isFinite(Td)) continue;
-
+        for (let p = mixBottom; p >= mixTop; p -= 10) {
+          const Td = 5 + 8 * Math.log(w) - 0.005 * (p - 1000);
           const x = xForT(Td, p);
           const y = yForP(p);
           if (first) {
@@ -1611,8 +1546,7 @@ function computeCapeCin(history) {
             ctx.lineTo(x, y);
           }
         }
-
-        if (!first) ctx.stroke();
+        ctx.stroke();
       }
 
       ctx.restore();
@@ -1804,7 +1738,6 @@ function computeCapeCin(history) {
     }
     if (showThermo) {
       drawLegend('rgba(255,184,108,0.7)', 'Suche adiabaty');
-      drawLegend('rgba(61,212,255,0.7)', 'Wilgotne adiabaty');
       drawLegend('rgba(123,255,176,0.7)', 'Linie mieszania');
     }
     if (showConv) {
@@ -3609,8 +3542,6 @@ function stopTelemetryAutoScroll() {
     slidesCache = slides;
     slideIndex = 0;
     paused = false;
-    slidesCache = [];
-    slideIndex = 0;
 
     if (!slidesCache.length) {
       console.warn('Brak slajdów do prezentacji.');
