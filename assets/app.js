@@ -141,7 +141,6 @@
     return Tk * Math.pow(1000 / p, 0.2854);
   }
 
-
 // ======= Termodynamika profilu / CAPE / CIN =======
 function saturationVaporPressureHpa(Tc) {
   if (!Number.isFinite(Tc)) return null;
@@ -234,7 +233,9 @@ function buildThermoAnalysis(history) {
         humidity: Number(h.humidity),
         windSpeed: Number(h.windSpeed),
         windDir: Number(h.windDir),
-        time: h.time
+        time: h.time,
+        lat: Number(h.lat),
+        lon: Number(h.lon)
       };
     })
     .filter(l =>
@@ -386,8 +387,8 @@ function buildThermoAnalysis(history) {
       alt: lclAlt,
       temp: lcl.TlclK - 273.15
     },
-    lfc: lfc ? { alt: lfc.alt, p: lfc.p, temp: lfc.parcelTc } : null,
-    el: el ? { alt: el.alt, p: el.p, temp: el.parcelTc } : null
+    lfc: lfc ? { alt: lfc.alt, p: lfc.p, temp: lfc.temp } : null,
+    el: el ? { alt: el.alt, p: el.p, temp: el.temp } : null
   };
 }
 
@@ -410,7 +411,6 @@ function computeCapeCin(history) {
     elHeight: a.el && Number.isFinite(a.el.alt) ? Math.round(a.el.alt) : null
   };
 }
-
 
   function lclHeight(Tc, Td) {
     if (!Number.isFinite(Tc) || !Number.isFinite(Td)) return null;
@@ -608,8 +608,7 @@ function computeCapeCin(history) {
       state.source = activeBtn.dataset.src;
       $('#ttgo-url-wrap').classList.toggle('hidden', state.source !== 'ttgo');
       $('#radiosondy-search').classList.toggle('hidden', state.source !== 'radiosondy');
-      initAutoResizeWatcher();
-    restartFetching();
+      restartFetching();
     }
     segTTGO.addEventListener('click', () => setSourceSegment(segTTGO));
     segR.addEventListener('click', () => setSourceSegment(segR));
@@ -617,14 +616,12 @@ function computeCapeCin(history) {
     // Szukaj / wszystkie (radiosondy.info)
     $('#btn-search').addEventListener('click', () => {
       state.filterId = ($('#sonde-id').value || '').trim();
-      initAutoResizeWatcher();
-    restartFetching();
+      restartFetching();
     });
     $('#btn-show-all').addEventListener('click', () => {
       state.filterId = '';
       $('#sonde-id').value = '';
-      initAutoResizeWatcher();
-    restartFetching();
+      restartFetching();
     });
 
     // Fullscreen wykresów / mini-mapy – ten sam przycisk włącza/wyłącza
@@ -964,8 +961,6 @@ function computeCapeCin(history) {
         distanceToRx: null,
         theta: null,
         lclHeight: null,
-        lfcHeight: null,
-        elHeight: null,
         zeroIsoHeight: null,
         ageSec: null,
         status: 'active',
@@ -1030,6 +1025,7 @@ function computeCapeCin(history) {
 
     s.dewPoint = dewPoint(s.temp, s.humidity);
     s.theta = thetaK(s.temp, s.pressure);
+    s.lclHeight = lclHeight(s.temp, s.dewPoint);
     s.zeroIsoHeight = zeroIsoHeight(s.history);
     s.distanceToRx =
       (Number.isFinite(s.lat) && Number.isFinite(s.lon))
@@ -1064,9 +1060,6 @@ function computeCapeCin(history) {
     const cc = computeCapeCin(s.history);
     s.cape = cc.cape;
     s.cin = cc.cin;
-    s.lclHeight = Number.isFinite(cc.lclHeight) ? cc.lclHeight : lclHeight(s.temp, s.dewPoint);
-    s.lfcHeight = Number.isFinite(cc.lfcHeight) ? cc.lfcHeight : null;
-    s.elHeight = Number.isFinite(cc.elHeight) ? cc.elHeight : null;
 
     ensureMapObjects(s);
     updateLaunchBurstMarkers(s);
@@ -1239,8 +1232,6 @@ function computeCapeCin(history) {
       { label: 'Odległość od RX [m]', value: fmt(s.distanceToRx, 0) },
       { label: '0 °C izoterma [m]', value: fmt(s.zeroIsoHeight, 0) },
       { label: 'LCL [m]', value: fmt(s.lclHeight, 0) },
-      { label: 'LFC [m]', value: fmt(s.lfcHeight, 0) },
-      { label: 'EL [m]', value: fmt(s.elHeight, 0) },
       { label: 'Θ potencjalna [K]', value: fmt(s.theta, 1) },
       { label: 'Stabilność Γ [K/km]', value: fmt(s.stabilityIndex, 1) }
     ];
@@ -1377,8 +1368,7 @@ function computeCapeCin(history) {
   };
 
   // ======= Skew-T Log-P diagram (z auto-fit T/p) =======
-  
-function renderSkewT(s) {
+  function renderSkewT(s) {
     const canvas = document.getElementById('chart-skewt');
     if (!canvas) return;
 
@@ -1413,68 +1403,33 @@ function renderSkewT(s) {
     ctx.fillStyle = '#050814';
     ctx.fillRect(0, 0, width, height);
 
-    const rawHistory = s && Array.isArray(s.history) ? s.history : [];
-    const histBasic = rawHistory
-      .filter(h => Number.isFinite(h?.pressure) && Number.isFinite(h?.temp))
-      .map(h => ({
-        p: Number(h.pressure),
-        temp: Number(h.temp),
-        dew: Number.isFinite(h.dew) ? Number(h.dew) : dewPoint(Number(h.temp), Number(h.humidity)),
-        alt: Number(h.alt),
-        humidity: Number(h.humidity),
-        windSpeed: Number(h.windSpeed),
-        windDir: Number(h.windDir),
-        time: h.time
-      }))
-      .filter(h => Number.isFinite(h.p) && h.p > 20 && h.p < 1100 && Number.isFinite(h.temp))
-      .sort((a, b) => b.p - a.p);
-
-    const analysis = buildThermoAnalysis(rawHistory);
-    const hist = (analysis && Array.isArray(analysis.levels) && analysis.levels.length)
-      ? analysis.levels
-      : histBasic;
+    const analysis = s ? buildThermoAnalysis(s.history || []) : null;
+    const hist = analysis ? analysis.levels : [];
 
     if (!hist.length) {
       ctx.strokeStyle = 'rgba(134,144,176,0.7)';
       ctx.lineWidth = 1;
       ctx.strokeRect(left, top, plotW, plotH);
-
       ctx.fillStyle = '#8a94b0';
       ctx.font = '12px system-ui, sans-serif';
-      ctx.fillText('Brak punktów z pełnymi danymi T / p', left + 12, top + 24);
+      ctx.fillText('Brak punktów z pełnymi danymi T / Td / p', left + 12, top + 24);
       return;
     }
 
-    let pMin = 100;
-    let pMax = 1050;
-    const dataPMin = Math.min(...hist.map(h => h.p));
-    const dataPMax = Math.max(...hist.map(h => h.p));
-
-    pMin = Math.max(70, Math.floor(dataPMin / 25) * 25);
-    pMax = Math.min(1050, Math.ceil(dataPMax / 25) * 25);
+    let pMin = Math.max(70, Math.floor(Math.min(...hist.map(h => h.p)) / 25) * 25);
+    let pMax = Math.min(1050, Math.ceil(Math.max(...hist.map(h => h.p)) / 25) * 25);
     if (pMax - pMin < 300) pMin = Math.max(70, pMax - 300);
 
     let dataTMin = Infinity;
     let dataTMax = -Infinity;
     for (const h of hist) {
-      if (Number.isFinite(h.temp)) {
-        dataTMin = Math.min(dataTMin, h.temp);
-        dataTMax = Math.max(dataTMax, h.temp);
-      }
-      if (Number.isFinite(h.dew)) {
-        dataTMin = Math.min(dataTMin, h.dew);
-        dataTMax = Math.max(dataTMax, h.dew);
-      }
-      if (analysis && Number.isFinite(h.parcelTc)) {
-        dataTMin = Math.min(dataTMin, h.parcelTc);
-        dataTMax = Math.max(dataTMax, h.parcelTc);
-      }
+      if (Number.isFinite(h.temp)) { dataTMin = Math.min(dataTMin, h.temp); dataTMax = Math.max(dataTMax, h.temp); }
+      if (Number.isFinite(h.dew)) { dataTMin = Math.min(dataTMin, h.dew); dataTMax = Math.max(dataTMax, h.dew); }
+      if (Number.isFinite(h.parcelTc)) { dataTMin = Math.min(dataTMin, h.parcelTc); dataTMax = Math.max(dataTMax, h.parcelTc); }
     }
 
-    let tMin = Math.floor((dataTMin - 12) / 10) * 10;
-    let tMax = Math.ceil((dataTMax + 12) / 10) * 10;
-    tMin = Math.max(-90, tMin);
-    tMax = Math.min(50, tMax);
+    let tMin = Math.max(-90, Math.floor((dataTMin - 12) / 10) * 10);
+    let tMax = Math.min(50, Math.ceil((dataTMax + 12) / 10) * 10);
     if (tMax - tMin < 50) {
       const mid = (tMax + tMin) / 2;
       tMin = Math.max(-90, Math.floor((mid - 25) / 10) * 10);
@@ -1500,7 +1455,6 @@ function renderSkewT(s) {
     };
 
     function drawPath(points, color, widthPx, dash = []) {
-      if (!points.length) return;
       ctx.save();
       ctx.strokeStyle = color;
       ctx.lineWidth = widthPx;
@@ -1511,74 +1465,50 @@ function renderSkewT(s) {
         if (!Number.isFinite(p.temp) || !Number.isFinite(p.pressure)) continue;
         const x = xForT(p.temp, p.pressure);
         const y = yForP(p.pressure);
-        if (!started) {
-          ctx.moveTo(x, y);
-          started = true;
-        } else {
-          ctx.lineTo(x, y);
-        }
+        if (!started) { ctx.moveTo(x, y); started = true; }
+        else ctx.lineTo(x, y);
       }
       if (started) ctx.stroke();
       ctx.restore();
     }
 
     function shadeBuoyancy(kind, fillStyle) {
-      if (!analysis) return;
       ctx.save();
       ctx.fillStyle = fillStyle;
       for (let i = 1; i < hist.length; i++) {
         const a = hist[i - 1];
         const b = hist[i];
         if (![a.p, b.p, a.temp, b.temp, a.parcelTc, b.parcelTc, a.buoy, b.buoy].every(Number.isFinite)) continue;
-        const signA = kind === 'pos' ? a.buoy > 0 : a.buoy < 0;
-        const signB = kind === 'pos' ? b.buoy > 0 : b.buoy < 0;
-        if (!signA && !signB) continue;
+        const posA = a.buoy > 0;
+        const posB = b.buoy > 0;
+        const negA = a.buoy < 0;
+        const negB = b.buoy < 0;
+        if (kind === 'pos' && !((posA && posB) || (posA && negB) || (negA && posB))) continue;
+        if (kind === 'neg' && !((negA && negB) || (negA && posB) || (posA && negB))) continue;
 
-        const xEa = xForT(a.temp, a.p);
-        const xPa = xForT(a.parcelTc, a.p);
-        const xEb = xForT(b.temp, b.p);
-        const xPb = xForT(b.parcelTc, b.p);
-        const yA = yForP(a.p);
-        const yB = yForP(b.p);
+        const xEa = xForT(a.temp, a.p), xPa = xForT(a.parcelTc, a.p);
+        const xEb = xForT(b.temp, b.p), xPb = xForT(b.parcelTc, b.p);
+        const yA = yForP(a.p), yB = yForP(b.p);
 
-        if (signA && signB) {
+        if ((kind === 'pos' && posA && posB) || (kind === 'neg' && negA && negB)) {
           ctx.beginPath();
-          ctx.moveTo(xEa, yA);
-          ctx.lineTo(xPa, yA);
-          ctx.lineTo(xPb, yB);
-          ctx.lineTo(xEb, yB);
-          ctx.closePath();
-          ctx.fill();
+          ctx.moveTo(xEa, yA); ctx.lineTo(xPa, yA); ctx.lineTo(xPb, yB); ctx.lineTo(xEb, yB);
+          ctx.closePath(); ctx.fill();
           continue;
         }
 
-        if (a.buoy === b.buoy) continue;
         const f = (0 - a.buoy) / (b.buoy - a.buoy);
         if (!(f > 0 && f < 1)) continue;
-
         const pCross = Math.exp(Math.log(a.p) + f * (Math.log(b.p) - Math.log(a.p)));
-        const envCross = a.temp + f * (b.temp - a.temp);
-        const parCross = a.parcelTc + f * (b.parcelTc - a.parcelTc);
-        const xEC = xForT(envCross, pCross);
-        const xPC = xForT(parCross, pCross);
-        const yC = yForP(pCross);
+        const tCross = a.temp + f * (b.temp - a.temp);
+        const xC = xForT(tCross, pCross), yC = yForP(pCross);
 
-        if (signA) {
+        if ((kind === 'pos' && posA) || (kind === 'neg' && negA)) {
           ctx.beginPath();
-          ctx.moveTo(xEa, yA);
-          ctx.lineTo(xPa, yA);
-          ctx.lineTo(xPC, yC);
-          ctx.lineTo(xEC, yC);
-          ctx.closePath();
-          ctx.fill();
-        } else if (signB) {
+          ctx.moveTo(xEa, yA); ctx.lineTo(xPa, yA); ctx.lineTo(xC, yC); ctx.closePath(); ctx.fill();
+        } else if ((kind === 'pos' && posB) || (kind === 'neg' && negB)) {
           ctx.beginPath();
-          ctx.moveTo(xEC, yC);
-          ctx.lineTo(xPC, yC);
-          ctx.lineTo(xPb, yB);
-          ctx.lineTo(xEb, yB);
-          ctx.closePath();
-          ctx.fill();
+          ctx.moveTo(xC, yC); ctx.lineTo(xPb, yB); ctx.lineTo(xEb, yB); ctx.closePath(); ctx.fill();
         }
       }
       ctx.restore();
@@ -1600,10 +1530,7 @@ function renderSkewT(s) {
     ctx.lineWidth = 1;
     for (let p = pGridMax; p >= pGridMin; p -= pStepMajor) {
       const y = yForP(p);
-      ctx.beginPath();
-      ctx.moveTo(left, y);
-      ctx.lineTo(left + plotW, y);
-      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + plotW, y); ctx.stroke();
     }
 
     ctx.strokeStyle = 'rgba(134,144,176,0.28)';
@@ -1612,14 +1539,8 @@ function renderSkewT(s) {
       ctx.beginPath();
       let first = true;
       for (let p = pMax; p >= pMin; p -= 10) {
-        const x = xForT(T, p);
-        const y = yForP(p);
-        if (first) {
-          ctx.moveTo(x, y);
-          first = false;
-        } else {
-          ctx.lineTo(x, y);
-        }
+        const x = xForT(T, p), y = yForP(p);
+        if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y);
       }
       ctx.stroke();
     }
@@ -1636,54 +1557,37 @@ function renderSkewT(s) {
         for (let p = pMax; p >= pMin; p -= 10) {
           const Tk = theta / Math.pow(1000 / p, 0.2854);
           const T = Tk - 273.15;
-          const x = xForT(T, p);
-          const y = yForP(p);
-          if (first) {
-            ctx.moveTo(x, y);
-            first = false;
-          } else {
-            ctx.lineTo(x, y);
-          }
+          const x = xForT(T, p), y = yForP(p);
+          if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y);
         }
         ctx.stroke();
       }
       ctx.restore();
 
-      if (analysis) {
-        ctx.save();
-        ctx.strokeStyle = 'rgba(173,216,255,0.28)';
-        ctx.lineWidth = 0.8;
-        ctx.setLineDash([1.5, 3.5]);
-        const moistStarts = [];
-        for (let t = -10; t <= 40; t += 5) moistStarts.push(t);
-        const pStart = Math.min(1000, pMax);
-        for (const startT of moistStarts) {
-          let pCur = pStart;
-          let TCur = startT + 273.15;
-          ctx.beginPath();
-          let first = true;
-          while (pCur >= pMin) {
-            const x = xForT(TCur - 273.15, pCur);
-            const y = yForP(pCur);
-            if (first) {
-              ctx.moveTo(x, y);
-              first = false;
-            } else {
-              ctx.lineTo(x, y);
-            }
-            const pNext = pCur - 10;
-            if (pNext < pMin) break;
-            const ws = saturationMixingRatio(pCur, TCur - 273.15);
-            const TvPar = virtualTemperatureK(TCur, ws);
-            const dz = -287.05 * TvPar / 9.80665 * Math.log(pNext / pCur);
-            const gammaM = moistAdiabaticLapseKPerM(TCur, pCur);
-            TCur -= gammaM * dz;
-            pCur = pNext;
-          }
-          ctx.stroke();
+      ctx.save();
+      ctx.strokeStyle = 'rgba(173,216,255,0.28)';
+      ctx.lineWidth = 0.8;
+      ctx.setLineDash([1.5, 3.5]);
+      for (let startT = -10; startT <= 40; startT += 5) {
+        let pCur = Math.min(1000, pMax);
+        let TCur = startT + 273.15;
+        ctx.beginPath();
+        let first = true;
+        while (pCur >= pMin) {
+          const x = xForT(TCur - 273.15, pCur), y = yForP(pCur);
+          if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y);
+          const pNext = pCur - 10;
+          if (pNext < pMin) break;
+          const ws = saturationMixingRatio(pCur, TCur - 273.15);
+          const TvPar = virtualTemperatureK(TCur, ws);
+          const dz = -287.05 * TvPar / 9.80665 * Math.log(pNext / pCur);
+          const gammaM = moistAdiabaticLapseKPerM(TCur, pCur);
+          TCur -= gammaM * dz;
+          pCur = pNext;
         }
-        ctx.restore();
+        ctx.stroke();
       }
+      ctx.restore();
 
       ctx.save();
       ctx.strokeStyle = 'rgba(123,255,176,0.34)';
@@ -1696,14 +1600,8 @@ function renderSkewT(s) {
           const e = (wGkg * p) / (wGkg + 621.97);
           if (!(e > 0 && e < p)) continue;
           const Td = (243.5 * Math.log(e / 6.112)) / (17.67 - Math.log(e / 6.112));
-          const x = xForT(Td, p);
-          const y = yForP(p);
-          if (first) {
-            ctx.moveTo(x, y);
-            first = false;
-          } else {
-            ctx.lineTo(x, y);
-          }
+          const x = xForT(Td, p), y = yForP(p);
+          if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y);
         }
         ctx.stroke();
       }
@@ -1714,14 +1612,10 @@ function renderSkewT(s) {
       ctx.save();
       ctx.fillStyle = 'rgba(230,235,255,0.08)';
       for (let i = 1; i < hist.length; i++) {
-        const a = hist[i - 1];
-        const b = hist[i];
+        const a = hist[i - 1], b = hist[i];
         if (![a.temp, a.dew, b.temp, b.dew, a.p, b.p].every(Number.isFinite)) continue;
-        const depA = a.temp - a.dew;
-        const depB = b.temp - b.dew;
-        if (depA <= 2 && depB <= 2) {
-          const y1 = yForP(a.p);
-          const y2 = yForP(b.p);
+        if ((a.temp - a.dew) <= 2 && (b.temp - b.dew) <= 2) {
+          const y1 = yForP(a.p), y2 = yForP(b.p);
           ctx.fillRect(left, Math.min(y1, y2), plotW, Math.abs(y2 - y1));
         }
       }
@@ -1730,22 +1624,19 @@ function renderSkewT(s) {
       ctx.save();
       ctx.fillStyle = 'rgba(61,212,255,0.10)';
       for (let i = 1; i < hist.length; i++) {
-        const a = hist[i - 1];
-        const b = hist[i];
+        const a = hist[i - 1], b = hist[i];
         if (![a.temp, b.temp, a.p, b.p].every(Number.isFinite)) continue;
         if (b.temp > a.temp + 0.2) {
-          const y1 = yForP(a.p);
-          const y2 = yForP(b.p);
+          const y1 = yForP(a.p), y2 = yForP(b.p);
           ctx.fillRect(left, Math.min(y1, y2), plotW, Math.abs(y2 - y1));
         }
       }
       ctx.restore();
     }
 
-    if (showConv && analysis) {
+    if (showConv) {
       shadeBuoyancy('neg', 'rgba(61,212,255,0.12)');
       shadeBuoyancy('pos', 'rgba(255,84,112,0.16)');
-
       ctx.save();
       ctx.strokeStyle = '#ff7df2';
       ctx.lineWidth = 1.6;
@@ -1753,41 +1644,28 @@ function renderSkewT(s) {
       let first = true;
       for (const h of hist) {
         if (!Number.isFinite(h.parcelTc) || !Number.isFinite(h.p)) continue;
-        const x = xForT(h.parcelTc, h.p);
-        const y = yForP(h.p);
-        if (first) {
-          ctx.moveTo(x, y);
-          first = false;
-        } else {
-          ctx.lineTo(x, y);
-        }
+        const x = xForT(h.parcelTc, h.p), y = yForP(h.p);
+        if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y);
       }
-      if (!first) ctx.stroke();
+      ctx.stroke();
       ctx.restore();
     }
 
     if (showBasic) {
       drawPath(hist.map(h => ({ temp: h.temp, pressure: h.p })), '#ffb86c', 2);
-      const dewPts = hist.filter(h => Number.isFinite(h.dew)).map(h => ({ temp: h.dew, pressure: h.p }));
-      drawPath(dewPts, '#7bffb0', 1.6);
+      drawPath(hist.map(h => ({ temp: h.dew, pressure: h.p })), '#7bffb0', 1.6);
     }
 
     if (showMarine || showConv) {
       ctx.save();
       ctx.strokeStyle = '#3dd4ff';
-      ctx.lineWidth = 1.6;
+      ctx.lineWidth = 1.2;
       ctx.setLineDash([2, 2]);
       ctx.beginPath();
       let first = true;
       for (let p = pMax; p >= pMin; p -= 10) {
-        const x = xForT(0, p);
-        const y = yForP(p);
-        if (first) {
-          ctx.moveTo(x, y);
-          first = false;
-        } else {
-          ctx.lineTo(x, y);
-        }
+        const x = xForT(0, p), y = yForP(p);
+        if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y);
       }
       ctx.stroke();
       ctx.restore();
@@ -1795,15 +1673,12 @@ function renderSkewT(s) {
 
     const drawLevelMark = (obj, label, color) => {
       if (!obj || !Number.isFinite(obj.p) || !Number.isFinite(obj.temp)) return;
-      const x = xForT(obj.temp, obj.p);
-      const y = yForP(obj.p);
+      const x = xForT(obj.temp, obj.p), y = yForP(obj.p);
       ctx.save();
       ctx.strokeStyle = color;
       ctx.fillStyle = color;
       ctx.lineWidth = 1.2;
-      ctx.beginPath();
-      ctx.arc(x, y, 3.5, 0, Math.PI * 2);
-      ctx.stroke();
+      ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2); ctx.stroke();
       ctx.font = '10px system-ui, sans-serif';
       ctx.textBaseline = 'bottom';
       ctx.fillText(label, x + 6, y - 2);
@@ -1848,20 +1723,11 @@ function renderSkewT(s) {
         const spd = clamp(speed || 0, 0, 60);
         const len = (spd / 60) * maxLen;
         const rad = (270 - dirDeg) * Math.PI / 180;
-        const x1 = xWind;
-        const y1 = y;
-        const x2 = x1 + len * Math.cos(rad);
-        const y2 = y1 + len * Math.sin(rad);
-
-        ctx.beginPath();
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
-        ctx.stroke();
-
+        const x1 = xWind, y1 = y;
+        const x2 = x1 + len * Math.cos(rad), y2 = y1 + len * Math.sin(rad);
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
         const ang = Math.atan2(y2 - y1, x2 - x1);
-        const a1 = ang + Math.PI * 0.75;
-        const a2 = ang - Math.PI * 0.75;
-        const r = 4;
+        const a1 = ang + Math.PI * 0.75, a2 = ang - Math.PI * 0.75, r = 4;
         ctx.beginPath();
         ctx.moveTo(x2, y2);
         ctx.lineTo(x2 + r * Math.cos(a1), y2 + r * Math.sin(a1));
@@ -1872,36 +1738,26 @@ function renderSkewT(s) {
 
       const levelsWanted = [1000, 925, 850, 700, 500, 400, 300, 200];
       for (const p of levelsWanted) {
-        let best = null;
-        let bestDp = Infinity;
+        let best = null, bestDp = Infinity;
         for (const h of hist) {
           const dp = Math.abs(h.p - p);
-          if (dp < bestDp) {
-            bestDp = dp;
-            best = h;
-          }
+          if (dp < bestDp) { bestDp = dp; best = h; }
         }
         if (!best || bestDp > 60) continue;
 
-        let speed = best.windSpeed;
-        let dir = best.windDir;
-
+        let speed = best.windSpeed, dir = best.windDir;
         if (!Number.isFinite(speed) || !Number.isFinite(dir)) {
           const idx = hist.indexOf(best);
           if (idx > 0) {
-            const a = hist[idx - 1];
-            const b = best;
+            const a = hist[idx - 1], b = best;
             const dt = (b.time - a.time) / 1000;
-            if (dt > 0 &&
-                Number.isFinite(a.lat) && Number.isFinite(a.lon) &&
-                Number.isFinite(b.lat) && Number.isFinite(b.lon)) {
+            if (dt > 0 && Number.isFinite(a.lat) && Number.isFinite(a.lon) && Number.isFinite(b.lat) && Number.isFinite(b.lon)) {
               const dH = haversine(a.lat, a.lon, b.lat, b.lon);
               speed = dH / dt;
               dir = bearing(a.lat, a.lon, b.lat, b.lon);
             }
           }
         }
-
         if (!Number.isFinite(speed) || !Number.isFinite(dir)) continue;
         drawArrow(yForP(best.p), speed, dir);
       }
@@ -1916,28 +1772,23 @@ function renderSkewT(s) {
     const drawLegend = (color, label, dash = []) => {
       ctx.save();
       ctx.strokeStyle = color;
+      ctx.fillStyle = color;
       ctx.lineWidth = 2;
       ctx.setLineDash(dash);
-      ctx.beginPath();
-      ctx.moveTo(lx, legendY - 5);
-      ctx.lineTo(lx + 14, legendY - 5);
-      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(lx, legendY - 5); ctx.lineTo(lx + 14, legendY - 5); ctx.stroke();
       ctx.restore();
       ctx.fillStyle = '#e6ebff';
       ctx.fillText(label, lx + 20, legendY);
       lx += ctx.measureText(label).width + 52;
     };
 
-    if (showBasic) {
-      drawLegend('#ffb86c', 'T');
-      if (hist.some(h => Number.isFinite(h.dew))) drawLegend('#7bffb0', 'Td');
-    }
+    if (showBasic) { drawLegend('#ffb86c', 'T'); drawLegend('#7bffb0', 'Td'); }
     if (showThermo) {
-      drawLegend('rgba(255,184,108,0.8)', 'Suche adiabaty', [6, 4]);
-      if (analysis) drawLegend('rgba(173,216,255,0.8)', 'Wilgotne adiabaty', [1.5, 3.5]);
-      drawLegend('rgba(123,255,176,0.8)', 'Linie mieszania', [2, 4]);
+      drawLegend('rgba(255,184,108,0.85)', 'Suche adiabaty', [6, 4]);
+      drawLegend('rgba(173,216,255,0.85)', 'Wilgotne adiabaty', [1.5, 3.5]);
+      drawLegend('rgba(123,255,176,0.85)', 'Linie mieszania', [2, 4]);
     }
-    if (showConv && analysis) {
+    if (showConv) {
       drawLegend('#ff7df2', 'Parcel');
       drawLegend('#ffffff', 'LCL');
       drawLegend('#ffd166', 'LFC');
@@ -1948,13 +1799,9 @@ function renderSkewT(s) {
 
     ctx.fillStyle = '#8a94b0';
     ctx.font = '10px system-ui, sans-serif';
-    ctx.fillText(
-      analysis ? 'Skew-T log-p (T / Td / parcel vs p)' : 'Skew-T log-p (T / p)',
-      left + 8,
-      top + plotH + 18
-    );
+    ctx.fillText('Skew-T log-p (T / Td / parcel vs p)', left + 8, top + plotH + 18);
   }
-function resizeCharts() {
+  function resizeCharts() {
     Object.values(state.charts).forEach(c => c && c.resize());
     if (state.miniMap) {
       setTimeout(() => state.miniMap.invalidateSize(), 80);
@@ -2048,7 +1895,7 @@ function resizeCharts() {
             {
 
 
-              label: 'Temperatura [°C]',
+              label: 'Temperatura [C] vs wysokosc [m]',
 
 
               data: [],
@@ -2062,7 +1909,7 @@ function resizeCharts() {
 
               pointRadius: 2,
 
-              clip: true
+              clip: 0
 
 
             }
@@ -2220,7 +2067,43 @@ function resizeCharts() {
       chart.update('none');
 
 
-    })();// 2) GNSS – placeholder// 2) GNSS – placeholder
+    })();// 2) GNSS – placeholder
+    (function () {
+      const id = 'chart-gnss';
+      const chart = ensureChart(id, () => ({
+        type: 'line',
+        data: {
+          datasets: [
+            {
+              label: 'Liczba satelitów GNSS',
+              data: [],
+              borderWidth: 1.5,
+              pointRadius: 0
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          parsing: false,
+          scales: {
+            x: timeScaleOptions('Czas'),
+            y: commonY('Liczba satelitów')
+          },
+          plugins: {
+            tooltip: tooltipWithAltitude(),
+            legend: { labels: { color: '#e6ebff' } }
+          }
+        }
+      }));
+      if (!chart) return;
+
+      chart.data.datasets[0].data = [];
+      chart.update('none');
+    })();
+
+// 2) GNSS – placeholder// 2) GNSS – placeholder
     (function () {
       const id = 'chart-gnss';
       const chart = ensureChart(id, () => ({
@@ -2275,7 +2158,7 @@ function resizeCharts() {
 
             {
 
-              label: 'Temperatura [°C]',
+              label: 'Temperatura [C]',
 
               xAxisID: 'xTemp',
 
@@ -2289,7 +2172,7 @@ function resizeCharts() {
 
               pointRadius: 2,
 
-              clip: true
+              clip: 0
 
             },
 
@@ -2309,7 +2192,7 @@ function resizeCharts() {
 
               pointRadius: 2,
 
-              clip: true
+              clip: 0
 
             },
 
@@ -2329,7 +2212,7 @@ function resizeCharts() {
 
               pointRadius: 2,
 
-              clip: true
+              clip: 0
 
             }
 
@@ -2674,7 +2557,7 @@ function resizeCharts() {
               borderWidth: 1.2,
               pointRadius: 3,
               showLine: true,
-              clip: true
+              clip: 0
             }
           ]
         },
@@ -2846,8 +2729,7 @@ function resizeCharts() {
   }
 
   // ======= Karta CAPE / CIN =======
-  
-function renderCapeCinCard(s) {
+  function renderCapeCinCard(s) {
     const chartsView = document.getElementById('view-charts');
     if (!chartsView) return;
 
@@ -2876,9 +2758,6 @@ function renderCapeCinCard(s) {
     const cin = s.cin;
     const gamma = s.stabilityIndex;
     const cls = s.stabilityClass || '—';
-    const lclStr = fmt(s.lclHeight, 0);
-    const lfcStr = fmt(s.lfcHeight, 0);
-    const elStr = fmt(s.elHeight, 0);
 
     let capeLevel = 'brak danych';
     if (Number.isFinite(cape)) {
@@ -2899,17 +2778,17 @@ function renderCapeCinCard(s) {
 
     let summary;
     if (!Number.isFinite(cape)) {
-      summary = 'Brak pełnego profilu do wiarygodnego wyznaczenia energii konwekcji.';
+      summary = 'Brak pełnych danych do obliczenia CAPE/CIN – wykorzystano jedynie wskaźnik stabilności.';
     } else if (cape < 100) {
       summary = 'Konwekcja praktycznie wykluczona.';
     } else if (cape < 500) {
-      summary = 'Możliwa słaba, lokalna konwekcja.';
+      summary = 'Słaba, lokalna konwekcja możliwa.';
     } else if (cape < 1000) {
-      summary = 'Umiarkowany potencjał rozwoju chmur konwekcyjnych i burz.';
+      summary = 'Umiarkowany potencjał burzowy.';
     } else if (cape < 2000) {
-      summary = 'Duży potencjał burzowy, zwłaszcza przy obecnym ścinaniu.';
+      summary = 'Duży potencjał burzowy, możliwe silniejsze komórki.';
     } else {
-      summary = 'Bardzo duży potencjał burzowy – środowisko sprzyja silnym burzom.';
+      summary = 'Bardzo duży potencjał burzowy – środowisko sprzyjające silnym burzom.';
     }
 
     const gammaStr = Number.isFinite(gamma) ? gamma.toFixed(1) + ' K/km' : '—';
@@ -2934,28 +2813,21 @@ function renderCapeCinCard(s) {
             </div>
             <div class="cape-cin-level">${cinLevel}</div>
           </div>
-          <div class="cape-cin-block">
-            <div class="cape-cin-label">Poziomy</div>
-            <div class="cape-cin-value" style="font-size:14px;line-height:1.45">
-              LCL: ${lclStr} m<br>
-              LFC: ${lfcStr} m<br>
-              EL: ${elStr} m
-            </div>
-            <div class="cape-cin-level">Poziomy parcelu</div>
-          </div>
         </div>
         <div class="cape-cin-extra">
           <div><strong>Stabilność (Γ):</strong> ${gammaStr} (${cls})</div>
           <div><strong>Szybka ocena:</strong> ${summary}</div>
           <div class="cape-cin-note">
-            Wartości wyliczane są z profilu T / Td / p metodą parcelu powierzchniowego (surface-based).
+            Uwaga: wartości CAPE/CIN są w tej chwili prototypowe – mogą być rozwinięte o pełne obliczenia z profilu
+            radiosondażu.
           </div>
         </div>
       </div>
     `;
   }
 
-// ======= Wskaznik widzialnosci (szacunkowy, na podstawie warstwy przyziemnej) =======
+  
+  // ======= Wskaznik widzialnosci (szacunkowy, na podstawie warstwy przyziemnej) =======
   // Uwaga: to NIE jest oficjalny METAR/TAF. To heurystyka z danych radiosondy (T/RH).
   // Wynik traktuj jako orientacyjny.
   function estimateVisibilityKmFromTRH(Tc, RH) {
@@ -3466,7 +3338,7 @@ try { addChartImageByCanvasId('chart-gnss',       'GNSS data'); } catch (e) { co
 try { addChartImageByCanvasId('chart-skewt',      'Skew-T Log-P'); } catch (e) { console.error(e); }
 
 // Indicator cards / boxes (non-canvas)
-await addElementImageBySelector('.stability-box',     'Stability (box)');
+await addElementImageBySelector('#stability-box',     'Stability (box)');
 await addElementImageBySelector('#cape-cin-card',     'CAPE / CIN');
 await addElementImageBySelector('#visibility-card',   'Visibility estimate');
 await addElementImageBySelector('.visibility-card',   'Visibility estimate');
@@ -3512,36 +3384,11 @@ await addElementImageBySelector('.visibility-card',   'Visibility estimate');
     }
   }
 
-  
-  function initAutoResizeWatcher() {
-    const trigger = () => {
-      requestAnimationFrame(() => {
-        try { resizeCharts(); } catch (e) {}
-        try { state.map && state.map.invalidateSize && state.map.invalidateSize(false); } catch (e) {}
-      });
-    };
-
-    window.addEventListener('resize', trigger);
-    window.addEventListener('orientationchange', trigger);
-
-    if ('ResizeObserver' in window) {
-      const ro = new ResizeObserver(trigger);
-      [
-        document.getElementById('view-charts'),
-        document.getElementById('view-telemetry'),
-        document.getElementById('view-presentation'),
-        document.querySelector('#view-charts .charts-scroll'),
-        document.getElementById('mini-map')?.parentElement
-      ].filter(Boolean).forEach(el => ro.observe(el));
-    }
-  }
-
-// ======= Boot =======
+  // ======= Boot =======
   window.addEventListener('DOMContentLoaded', () => {
     initLogin();
     initMap();
     initUI();
-    initAutoResizeWatcher();
     restartFetching();
   });
 })();
@@ -3777,6 +3624,8 @@ function stopTelemetryAutoScroll() {
     slidesCache = slides;
     slideIndex = 0;
     paused = false;
+    slidesCache = [];
+    slideIndex = 0;
 
     if (!slidesCache.length) {
       console.warn('Brak slajdów do prezentacji.');
