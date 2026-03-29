@@ -141,10 +141,10 @@
             </div>
           </div>
 
-          <!-- 2. Temperatura vs wysokość -->
+          <!-- 2. Temperatura w czasie -->
           <div class="card">
             <div class="card-head">
-              <span>Temperatura vs wysokość</span>
+              <span>Temperatura w czasie</span>
               <button class="btn icon fullscreen-toggle" title="Pełny ekran">
                 ⤢
               </button>
@@ -154,16 +154,44 @@
             </div>
           </div>
 
-          <!-- 3. Liczba satelitów GNSS w czasie -->
+          <!-- 3. Instrukcja użytkownika -->
           <div class="card">
             <div class="card-head">
-              <span>Liczba satelitów GNSS w czasie</span>
-              <button class="btn icon fullscreen-toggle" title="Pełny ekran">
-                ⤢
-              </button>
+              <span>Instrukcja / pomoc</span>
             </div>
-            <div class="card-body">
-              <canvas id="chart-gnss"></canvas>
+            <div class="card-body instruction-card">
+              <h3>Podstawowe parametry</h3>
+              <ul>
+                <li><b>T</b> – temperatura powietrza</li>
+                <li><b>Td</b> – punkt rosy, informacja o wilgotności</li>
+                <li><b>p</b> – ciśnienie atmosferyczne</li>
+                <li><b>RH</b> – wilgotność względna</li>
+                <li><b>h</b> – wysokość</li>
+              </ul>
+
+              <h3>Interpretacja Skew-T</h3>
+              <ul>
+                <li>Linia T pokazuje temperaturę powietrza.</li>
+                <li>Linia Td pokazuje punkt rosy; im bliżej T, tym większa wilgotność.</li>
+                <li>Suche i wilgotne adiabaty pokazują zmianę temperatury unoszącego się powietrza.</li>
+                <li>Linie mieszania pokazują zawartość pary wodnej.</li>
+              </ul>
+
+              <h3>Konwekcja</h3>
+              <ul>
+                <li><b>LCL</b> – poziom kondensacji, zwykle przybliżona podstawa chmur.</li>
+                <li><b>LFC</b> – poziom swobodnej konwekcji.</li>
+                <li><b>EL</b> – poziom równowagi.</li>
+                <li><b>CAPE</b> – energia dostępna dla konwekcji; większa wartość oznacza silniejsze prądy wznoszące.</li>
+                <li><b>CIN</b> – hamowanie konwekcji.</li>
+              </ul>
+
+              <h3>Zastosowanie praktyczne</h3>
+              <ul>
+                <li>Mała różnica T–Td przy powierzchni może oznaczać możliwość wystąpienia mgły.</li>
+                <li>Inwersja temperatury zwykle oznacza stabilną atmosferę.</li>
+                <li>Duży gradient wiatru wskazuje na obecność shear.</li>
+              </ul>
             </div>
           </div>
 
