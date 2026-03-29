@@ -834,3 +834,24 @@ body.presentation-mode .active-sondes,
 body.presentation-mode .active-sondes-card {
   display: none !important;
 }
+
+.instruction-card {
+  font-size: 0.9rem;
+  line-height: 1.5;
+  overflow-y: auto;
+}
+
+.instruction-card h3 {
+  margin: 10px 0 6px;
+  color: #9fb3ff;
+  font-size: 1rem;
+}
+
+.instruction-card ul {
+  margin: 5px 0 10px 18px;
+  padding: 0;
+}
+
+.instruction-card li {
+  margin-bottom: 4px;
+}
