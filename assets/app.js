@@ -24,8 +24,6 @@
     miniMap: null,
     miniPolyline: null,
     miniMarker: null,
-    chartResizeObserver: null,
-    chartResizeTimer: null,
     // warstwy na wykresie Skew-T (sterowane przyciskami w index.html)
     // basic  -> profil T / Td
     // thermo -> suche adiabaty + linie mieszania
@@ -143,275 +141,178 @@
     return Tk * Math.pow(1000 / p, 0.2854);
   }
 
-
-// ======= Termodynamika profilu / CAPE / CIN =======
-function saturationVaporPressureHpa(Tc) {
-  if (!Number.isFinite(Tc)) return null;
-  return 6.112 * Math.exp((17.67 * Tc) / (Tc + 243.5));
-}
-
-function mixingRatioFromVaporPressure(p_hPa, e_hPa) {
-  if (!Number.isFinite(p_hPa) || !Number.isFinite(e_hPa) || p_hPa <= e_hPa) return null;
-  return 0.622 * e_hPa / (p_hPa - e_hPa); // kg/kg
-}
-
-function mixingRatioFromDewPoint(p_hPa, TdC) {
-  const e = saturationVaporPressureHpa(TdC);
-  return mixingRatioFromVaporPressure(p_hPa, e);
-}
-
-function saturationMixingRatio(p_hPa, Tc) {
-  const e = saturationVaporPressureHpa(Tc);
-  return mixingRatioFromVaporPressure(p_hPa, e);
-}
-
-function virtualTemperatureK(Tk, w) {
-  if (!Number.isFinite(Tk)) return null;
-  const mix = Number.isFinite(w) ? Math.max(0, w) : 0;
-  return Tk * (1 + 0.61 * mix);
-}
-
-function lclBolton(Tc, TdC, p_hPa) {
-  if (!Number.isFinite(Tc) || !Number.isFinite(TdC) || !Number.isFinite(p_hPa) || p_hPa <= 0) return null;
-  const Tk = Tc + 273.15;
-  const Tdk = TdC + 273.15;
-  const TlclK = 1 / (1 / (Tdk - 56) + Math.log(Tk / Tdk) / 800) + 56;
-  const plcl = p_hPa * Math.pow(TlclK / Tk, 1 / 0.2854);
-  if (!Number.isFinite(TlclK) || !Number.isFinite(plcl)) return null;
-  return { TlclK, plcl };
-}
-
-function moistAdiabaticLapseKPerM(Tk, p_hPa) {
-  if (!Number.isFinite(Tk) || !Number.isFinite(p_hPa) || p_hPa <= 0) return null;
-  const Tc = Tk - 273.15;
-  const ws = saturationMixingRatio(p_hPa, Tc);
-  if (!Number.isFinite(ws)) return null;
+// ======= CAPE / CIN (surface-based, uproszczone) =======
+// Uwaga: to przybliżenie (pseudo-adiabata). Dla poprawnego działania potrzebuje profilu p, T oraz RH (lub Td).
+// Zwraca { cape, cin } w J/kg albo { null, null } gdy brakuje danych.
+function computeCapeCin(history) {
   const g = 9.80665;
   const Rd = 287.05;
   const cp = 1004.0;
+  const kappa = Rd / cp;
   const Lv = 2.5e6;
-  const num = g * (1 + (Lv * ws) / (Rd * Tk));
-  const den = cp + ((Lv * Lv * ws * 0.622) / (Rd * Tk * Tk));
-  return num / den;
-}
+  const eps = 0.622;
 
-function interpolateLevelByPressure(levels, targetP) {
-  if (!Array.isArray(levels) || levels.length < 2 || !Number.isFinite(targetP) || targetP <= 0) return null;
-  const arr = levels.slice().sort((a, b) => b.p - a.p);
-  for (let i = 1; i < arr.length; i++) {
-    const a = arr[i - 1];
-    const b = arr[i];
-    if (!Number.isFinite(a.p) || !Number.isFinite(b.p) || a.p === b.p) continue;
-    const inRange = (targetP <= a.p && targetP >= b.p) || (targetP >= a.p && targetP <= b.p);
-    if (!inRange) continue;
-    const f = (Math.log(targetP) - Math.log(a.p)) / (Math.log(b.p) - Math.log(a.p));
-    const lerp = (x, y) => (Number.isFinite(x) && Number.isFinite(y)) ? x + f * (y - x) : null;
-    return {
-      p: targetP,
-      alt: lerp(a.alt, b.alt),
-      temp: lerp(a.temp, b.temp),
-      dew: lerp(a.dew, b.dew),
-      humidity: lerp(a.humidity, b.humidity)
-    };
+  function es_hPa(Tc) {
+    // Magnus-Tetens (hPa)
+    return 6.112 * Math.exp((17.67 * Tc) / (Tc + 243.5));
   }
-  return null;
-}
 
-function buildThermoAnalysis(history) {
-  const g = 9.80665;
-  const Rd = 287.05;
-  const kappa = 0.2854;
+  function tdFromTRH(Tc, RH) {
+    // Bezpieczny punkt rosy z T i RH (RH w %). RH=0 powoduje log(0), więc minimalizujemy.
+    if (!Number.isFinite(Tc) || !Number.isFinite(RH)) return null;
+    const rh = Math.min(100, Math.max(0.5, RH)); // min 0.5% żeby nie było -inf
+    const a = 17.27, b = 237.7;
+    const alpha = (a * Tc) / (b + Tc) + Math.log(rh / 100);
+    return (b * alpha) / (a - alpha);
+  }
 
+  function mixingRatio(p_hPa, TdC) {
+    // w (kg/kg)
+    const e = es_hPa(TdC);
+    return (eps * e) / Math.max(1e-6, (p_hPa - e));
+  }
+
+  function virtualTempK(Tc, w) {
+    // Tv = T(1 + 0.61 w)
+    const Tk = Tc + 273.15;
+    return Tk * (1 + 0.61 * w);
+  }
+
+  // Zbuduj poziomy: alt, p, T, Td (Td z historii albo wyliczony z RH)
   const levels = history
     .map(h => {
-      const alt = Number(h.alt);
-      const temp = Number(h.temp);
-      const p = Number(h.pressure);
-      const dew = Number.isFinite(h.dew) ? Number(h.dew) : dewPoint(temp, h.humidity);
-      return {
-        alt,
-        temp,
-        p,
-        dew,
-        humidity: Number(h.humidity),
-        windSpeed: Number(h.windSpeed),
-        windDir: Number(h.windDir),
-        time: h.time
-      };
+      const alt = h.alt;
+      const temp = h.temp;
+      const p = h.pressure;
+      const dew = Number.isFinite(h.dew) ? h.dew : tdFromTRH(temp, h.humidity);
+      return { alt, temp, p, dew, rh: h.humidity };
     })
     .filter(l =>
       Number.isFinite(l.alt) &&
       Number.isFinite(l.temp) &&
-      Number.isFinite(l.p) && l.p > 20 && l.p < 1100 &&
+      Number.isFinite(l.p) && l.p > 0 &&
       Number.isFinite(l.dew)
     )
+    .slice()
     .sort((a, b) => a.alt - b.alt);
 
-  if (levels.length < 8) return null;
+  // Za mało punktów profilu -> nie liczymy
+  if (levels.length < 12) return { cape: null, cin: null };
 
-  const cleaned = [];
-  for (const l of levels) {
-    if (!cleaned.length) {
-      cleaned.push(l);
-      continue;
+  // Parcel start: pierwszy poziom (najniższy)
+  const sfc = levels[0];
+  const p0 = sfc.p;
+  const T0C = sfc.temp;
+  const Td0C = sfc.dew;
+
+  // wilgotność w warstwie startowej
+  const w0 = mixingRatio(p0, Td0C);
+
+  // LCL przybliżenie (Bolton): wysokość i ciśnienie LCL
+  // T_lcl (K)
+  const T0K = T0C + 273.15;
+  const Td0K = Td0C + 273.15;
+  const TlclK = 1 / (1 / (Td0K - 56) + Math.log(T0K / Td0K) / 800) + 56;
+
+  // p_lcl z Poissona: theta = T (1000/p)^kappa
+  const theta0 = T0K * Math.pow(1000 / p0, kappa);
+  const plcl = 1000 / Math.pow(theta0 / TlclK, 1 / kappa);
+
+  // Funkcja temperatury parcelu (K) na poziomie p:
+  // - poniżej LCL: sucha adiabata
+  // - powyżej LCL: pseudo-adiabata (przybliżenie: iteracyjne podnoszenie w profilu)
+  function parcelTempKAt(i) {
+    const p = levels[i].p;
+
+    if (p >= plcl) {
+      // sucha adiabata
+      return theta0 / Math.pow(1000 / p, kappa);
     }
-    const prev = cleaned[cleaned.length - 1];
-    if (l.alt <= prev.alt) continue;
-    cleaned.push(l);
+
+    // pseudo-adiabata: prosta integracja krokowa od LCL do danego poziomu
+    // start w LCL
+    let T = TlclK;
+    let pCur = plcl;
+
+    // idź w dół listy poziomów od najbliższego LCL do i
+    // znajdź indeks startowy: pierwszy poziom z p < plcl
+    const startIdx = levels.findIndex(L => L.p < plcl);
+    const endIdx = i;
+
+    // jeśli i jest przed startIdx, to i tak zwróci suchą, ale tu p<plcl więc startIdx <= i
+    for (let j = startIdx; j <= endIdx; j++) {
+      const pNext = levels[j].p;
+      if (!(pNext < pCur)) continue;
+
+      // nasycone mieszanie na aktualnym T i pCur
+      const Tc = T - 273.15;
+      const ws = mixingRatio(pCur, Tc); // przybliżenie: Td ~= T dla nasycenia
+
+      // wilgotna adiabata (Gamma_m) w funkcji T i ws:
+      // dT/dp w przybliżeniu (Bolton-like):
+      const num = (1 + (Lv * ws) / (Rd * T));
+      const den = (cp + (Lv * Lv * ws * eps) / (Rd * T * T));
+      // dT/dlnp = kappa*T * num/den (w przybliżeniu)
+      const dT_dlnp = kappa * T * (num / den);
+
+      const dlnp = Math.log(pNext / pCur);
+      T = T + dT_dlnp * dlnp;
+
+      pCur = pNext;
+    }
+    return T;
   }
 
-  if (cleaned.length < 8) return null;
-
-  const sfc = cleaned[0];
-  const lcl = lclBolton(sfc.temp, sfc.dew, sfc.p);
-  if (!lcl) return null;
-
-  const lclInterp = interpolateLevelByPressure(cleaned, lcl.plcl);
-  const lclAlt = lclInterp && Number.isFinite(lclInterp.alt) ? lclInterp.alt : null;
-
-  const theta0 = (sfc.temp + 273.15) * Math.pow(1000 / sfc.p, kappa);
-  const w0 = mixingRatioFromDewPoint(sfc.p, sfc.dew);
-
-  let moistT = lcl.TlclK;
-  let moistP = lcl.plcl;
-
-  const prof = cleaned.map(l => {
-    const TkEnv = l.temp + 273.15;
-    const wEnv = mixingRatioFromDewPoint(l.p, l.dew);
-    const TvEnv = virtualTemperatureK(TkEnv, wEnv);
-
-    let parcelTk;
-    let parcelW;
-
-    if (l.p >= lcl.plcl) {
-      parcelTk = theta0 / Math.pow(1000 / l.p, kappa);
-      parcelW = w0;
-    } else {
-      if (moistP <= l.p || !Number.isFinite(moistT)) {
-        moistP = lcl.plcl;
-        moistT = lcl.TlclK;
-      }
-      let pCur = moistP;
-      let TCur = moistT;
-      while (pCur - 1 > l.p) {
-        const pNext = Math.max(l.p, pCur - 5);
-        const ws = saturationMixingRatio(pCur, TCur - 273.15);
-        const TvPar = virtualTemperatureK(TCur, ws);
-        const dz = -Rd * TvPar / g * Math.log(pNext / pCur);
-        const gammaM = moistAdiabaticLapseKPerM(TCur, pCur);
-        TCur -= gammaM * dz;
-        pCur = pNext;
-      }
-      moistP = l.p;
-      moistT = TCur;
-      parcelTk = TCur;
-      parcelW = saturationMixingRatio(l.p, parcelTk - 273.15);
-    }
-
-    const TvParcel = virtualTemperatureK(parcelTk, parcelW);
-    const buoy = (Number.isFinite(TvEnv) && Number.isFinite(TvParcel))
-      ? g * ((TvParcel - TvEnv) / TvEnv)
-      : null;
-
-    return {
-      ...l,
-      envTk: TkEnv,
-      envTv: TvEnv,
-      envMix: wEnv,
-      parcelTk,
-      parcelTc: parcelTk - 273.15,
-      parcelMix: parcelW,
-      parcelTv: TvParcel,
-      buoy
-    };
-  });
-
+  // Integracja CAPE/CIN po warstwach
   let cape = 0;
   let cin = 0;
-  let lfc = null;
-  let el = null;
 
-  const interpCross = (a, b, targetB) => {
-    if (!Number.isFinite(a.buoy) || !Number.isFinite(b.buoy) || a.buoy === b.buoy) return null;
-    const f = (targetB - a.buoy) / (b.buoy - a.buoy);
-    const lerp = (x, y) => (Number.isFinite(x) && Number.isFinite(y)) ? x + f * (y - x) : null;
-    return {
-      alt: lerp(a.alt, b.alt),
-      p: Math.exp(Math.log(a.p) + f * (Math.log(b.p) - Math.log(a.p))),
-      parcelTc: lerp(a.parcelTc, b.parcelTc),
-      temp: lerp(a.temp, b.temp)
-    };
-  };
+  for (let i = 1; i < levels.length; i++) {
+    const z1 = levels[i - 1].alt;
+    const z2 = levels[i].alt;
+    const dz = z2 - z1;
+    if (!(dz > 0 && dz < 5000)) continue;
 
-  for (let i = 1; i < prof.length; i++) {
-    const a = prof[i - 1];
-    const b = prof[i];
-    if (![a.alt, b.alt, a.buoy, b.buoy].every(Number.isFinite)) continue;
-    const dz = b.alt - a.alt;
-    if (!(dz > 0 && dz < 4000)) continue;
+    const env1 = levels[i - 1];
+    const env2 = levels[i];
 
-    const afterLcl = Number.isFinite(lclAlt) ? (b.alt >= lclAlt) : (b.p <= lcl.plcl);
+    // środowisko: Tv
+    const wEnv1 = mixingRatio(env1.p, env1.dew);
+    const wEnv2 = mixingRatio(env2.p, env2.dew);
+    const TvEnv1 = virtualTempK(env1.temp, wEnv1);
+    const TvEnv2 = virtualTempK(env2.temp, wEnv2);
 
-    if (afterLcl && !lfc && a.buoy <= 0 && b.buoy > 0) {
-      lfc = interpCross(a, b, 0);
-    }
-    if (lfc && !el && a.buoy >= 0 && b.buoy < 0) {
-      el = interpCross(a, b, 0);
-    }
+    // parcel: Tv (przyjmij stałe w0 poniżej LCL, a powyżej nasycone ws)
+    const Tp1 = parcelTempKAt(i - 1);
+    const Tp2 = parcelTempKAt(i);
 
-    if (a.buoy >= 0 && b.buoy >= 0) {
-      cape += 0.5 * (a.buoy + b.buoy) * dz;
-    } else if (a.buoy <= 0 && b.buoy <= 0) {
-      cin += 0.5 * (a.buoy + b.buoy) * dz;
-    } else {
-      const cross = interpCross(a, b, 0);
-      if (!cross || !Number.isFinite(cross.alt)) continue;
-      const dz1 = cross.alt - a.alt;
-      const dz2 = b.alt - cross.alt;
-      if (a.buoy > 0) {
-        cape += 0.5 * a.buoy * dz1;
-        cin += 0.5 * b.buoy * dz2;
-      } else {
-        cin += 0.5 * a.buoy * dz1;
-        cape += 0.5 * b.buoy * dz2;
-      }
-    }
+    const p1 = env1.p;
+    const p2 = env2.p;
+
+    const wPar1 = (p1 >= plcl) ? w0 : mixingRatio(p1, Tp1 - 273.15);
+    const wPar2 = (p2 >= plcl) ? w0 : mixingRatio(p2, Tp2 - 273.15);
+    const TvPar1 = (Tp1) * (1 + 0.61 * wPar1);
+    const TvPar2 = (Tp2) * (1 + 0.61 * wPar2);
+
+    // wyporność w dwóch punktach i uśrednienie (trapez)
+    const B1 = g * ((TvPar1 - TvEnv1) / TvEnv1);
+    const B2 = g * ((TvPar2 - TvEnv2) / TvEnv2);
+    const B = 0.5 * (B1 + B2);
+
+    const dE = B * dz; // J/kg
+
+    if (dE > 0) cape += dE;
+    else cin += dE;
   }
 
+  // Zaokrąglenie
+  if (!Number.isFinite(cape) || !Number.isFinite(cin)) return { cape: null, cin: null };
   return {
-    levels: prof,
-    surface: sfc,
-    cape: Number.isFinite(cape) ? Math.max(0, Math.round(cape)) : null,
-    cin: Number.isFinite(cin) ? Math.round(cin) : null,
-    lcl: {
-      p: lcl.plcl,
-      alt: lclAlt,
-      temp: lcl.TlclK - 273.15
-    },
-    lfc: lfc ? { alt: lfc.alt, p: lfc.p, temp: lfc.parcelTc } : null,
-    el: el ? { alt: el.alt, p: el.p, temp: el.parcelTc } : null
+    cape: Math.round(cape),
+    cin: Math.round(cin)
   };
 }
 
-function computeCapeCin(history) {
-  const a = buildThermoAnalysis(history);
-  if (!a) {
-    return {
-      cape: null,
-      cin: null,
-      lclHeight: null,
-      lfcHeight: null,
-      elHeight: null
-    };
-  }
-  return {
-    cape: a.cape,
-    cin: a.cin,
-    lclHeight: a.lcl && Number.isFinite(a.lcl.alt) ? Math.round(a.lcl.alt) : null,
-    lfcHeight: a.lfc && Number.isFinite(a.lfc.alt) ? Math.round(a.lfc.alt) : null,
-    elHeight: a.el && Number.isFinite(a.el.alt) ? Math.round(a.el.alt) : null
-  };
-}
 
 
   function lclHeight(Tc, Td) {
@@ -610,8 +511,7 @@ function computeCapeCin(history) {
       state.source = activeBtn.dataset.src;
       $('#ttgo-url-wrap').classList.toggle('hidden', state.source !== 'ttgo');
       $('#radiosondy-search').classList.toggle('hidden', state.source !== 'radiosondy');
-      initAutoResizeWatcher();
-    restartFetching();
+      restartFetching();
     }
     segTTGO.addEventListener('click', () => setSourceSegment(segTTGO));
     segR.addEventListener('click', () => setSourceSegment(segR));
@@ -619,14 +519,12 @@ function computeCapeCin(history) {
     // Szukaj / wszystkie (radiosondy.info)
     $('#btn-search').addEventListener('click', () => {
       state.filterId = ($('#sonde-id').value || '').trim();
-      initAutoResizeWatcher();
-    restartFetching();
+      restartFetching();
     });
     $('#btn-show-all').addEventListener('click', () => {
       state.filterId = '';
       $('#sonde-id').value = '';
-      initAutoResizeWatcher();
-    restartFetching();
+      restartFetching();
     });
 
     // Fullscreen wykresów / mini-mapy – ten sam przycisk włącza/wyłącza
@@ -966,8 +864,6 @@ function computeCapeCin(history) {
         distanceToRx: null,
         theta: null,
         lclHeight: null,
-        lfcHeight: null,
-        elHeight: null,
         zeroIsoHeight: null,
         ageSec: null,
         status: 'active',
@@ -1032,6 +928,7 @@ function computeCapeCin(history) {
 
     s.dewPoint = dewPoint(s.temp, s.humidity);
     s.theta = thetaK(s.temp, s.pressure);
+    s.lclHeight = lclHeight(s.temp, s.dewPoint);
     s.zeroIsoHeight = zeroIsoHeight(s.history);
     s.distanceToRx =
       (Number.isFinite(s.lat) && Number.isFinite(s.lon))
@@ -1066,9 +963,6 @@ function computeCapeCin(history) {
     const cc = computeCapeCin(s.history);
     s.cape = cc.cape;
     s.cin = cc.cin;
-    s.lclHeight = Number.isFinite(cc.lclHeight) ? cc.lclHeight : lclHeight(s.temp, s.dewPoint);
-    s.lfcHeight = Number.isFinite(cc.lfcHeight) ? cc.lfcHeight : null;
-    s.elHeight = Number.isFinite(cc.elHeight) ? cc.elHeight : null;
 
     ensureMapObjects(s);
     updateLaunchBurstMarkers(s);
@@ -1241,8 +1135,6 @@ function computeCapeCin(history) {
       { label: 'Odległość od RX [m]', value: fmt(s.distanceToRx, 0) },
       { label: '0 °C izoterma [m]', value: fmt(s.zeroIsoHeight, 0) },
       { label: 'LCL [m]', value: fmt(s.lclHeight, 0) },
-      { label: 'LFC [m]', value: fmt(s.lfcHeight, 0) },
-      { label: 'EL [m]', value: fmt(s.elHeight, 0) },
       { label: 'Θ potencjalna [K]', value: fmt(s.theta, 1) },
       { label: 'Stabilność Γ [K/km]', value: fmt(s.stabilityIndex, 1) }
     ];
@@ -1379,8 +1271,7 @@ function computeCapeCin(history) {
   };
 
   // ======= Skew-T Log-P diagram (z auto-fit T/p) =======
-  
-function renderSkewT(s) {
+  function renderSkewT(s) {
     const canvas = document.getElementById('chart-skewt');
     if (!canvas) return;
 
@@ -1392,8 +1283,8 @@ function renderSkewT(s) {
     const showMarine = !!layers.marine;
 
     const parent = canvas.parentElement || canvas;
-    const width = Math.max(320, parent.clientWidth || 600);
-    const height = Math.max(260, parent.clientHeight || 320);
+    const width = parent.clientWidth || 600;
+    const height = parent.clientHeight || 320;
     const dpr = window.devicePixelRatio || 1;
 
     if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
@@ -1406,7 +1297,7 @@ function renderSkewT(s) {
     ctx.clearRect(0, 0, width, height);
 
     const left = 52;
-    const right = 42;
+    const right = 32;
     const top = 18;
     const bottom = 30;
     const plotW = width - left - right;
@@ -1415,8 +1306,24 @@ function renderSkewT(s) {
     ctx.fillStyle = '#050814';
     ctx.fillRect(0, 0, width, height);
 
-    const analysis = s ? buildThermoAnalysis(s.history || []) : null;
-    const hist = analysis ? analysis.levels : [];
+    if (!s || !s.history.length) {
+      ctx.strokeStyle = 'rgba(134,144,176,0.7)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(left, top, plotW, plotH);
+
+      ctx.fillStyle = '#8a94b0';
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.fillText('Brak danych radiosondy do wykreślenia profilu', left + 12, top + 24);
+      return;
+    }
+
+    const hist = s.history
+      .filter(h =>
+        Number.isFinite(h.pressure) &&
+        Number.isFinite(h.temp)
+      )
+      .slice()
+      .sort((a, b) => b.pressure - a.pressure); // od dołu do góry
 
     if (!hist.length) {
       ctx.strokeStyle = 'rgba(134,144,176,0.7)';
@@ -1425,59 +1332,73 @@ function renderSkewT(s) {
 
       ctx.fillStyle = '#8a94b0';
       ctx.font = '12px system-ui, sans-serif';
-      ctx.fillText('Brak punktów z pełnymi danymi T / Td / p', left + 12, top + 24);
+      ctx.fillText('Brak punktów z pełnymi danymi T/p', left + 12, top + 24);
       return;
     }
 
+    // --- AUTO-FIT zakresu ciśnień i temperatury z marginesem ---
     let pMin = 100;
-    let pMax = 1050;
-    const dataPMin = Math.min(...hist.map(h => h.p));
-    const dataPMax = Math.max(...hist.map(h => h.p));
+    let pMax = 1000;
+    let tMin = -60;
+    let tMax = 40;
 
-    pMin = Math.max(70, Math.floor(dataPMin / 25) * 25);
-    pMax = Math.min(1050, Math.ceil(dataPMax / 25) * 25);
-    if (pMax - pMin < 300) {
-      pMin = Math.max(70, pMax - 300);
-    }
+    {
+      let dataPMin = Infinity;
+      let dataPMax = -Infinity;
+      let dataTMin = Infinity;
+      let dataTMax = -Infinity;
 
-    let dataTMin = Infinity;
-    let dataTMax = -Infinity;
-    for (const h of hist) {
-      if (Number.isFinite(h.temp)) {
-        dataTMin = Math.min(dataTMin, h.temp);
-        dataTMax = Math.max(dataTMax, h.temp);
+      for (const h of hist) {
+        if (Number.isFinite(h.pressure)) {
+          dataPMin = Math.min(dataPMin, h.pressure);
+          dataPMax = Math.max(dataPMax, h.pressure);
+        }
+        if (Number.isFinite(h.temp)) {
+          dataTMin = Math.min(dataTMin, h.temp);
+          dataTMax = Math.max(dataTMax, h.temp);
+        }
+        const Td = dewPoint(h.temp, h.humidity);
+        if (Number.isFinite(Td)) {
+          dataTMin = Math.min(dataTMin, Td);
+          dataTMax = Math.max(dataTMax, Td);
+        }
       }
-      if (Number.isFinite(h.dew)) {
-        dataTMin = Math.min(dataTMin, h.dew);
-        dataTMax = Math.max(dataTMax, h.dew);
-      }
-      if (Number.isFinite(h.parcelTc)) {
-        dataTMin = Math.min(dataTMin, h.parcelTc);
-        dataTMax = Math.max(dataTMax, h.parcelTc);
-      }
-    }
 
-    let tMin = Math.floor((dataTMin - 12) / 10) * 10;
-    let tMax = Math.ceil((dataTMax + 12) / 10) * 10;
-    tMin = Math.max(-90, tMin);
-    tMax = Math.min(50, tMax);
-    if (tMax - tMin < 50) {
-      const mid = (tMax + tMin) / 2;
-      tMin = Math.max(-90, Math.floor((mid - 25) / 10) * 10);
-      tMax = Math.min(50, Math.ceil((mid + 25) / 10) * 10);
+      if (dataPMin < Infinity && dataPMax > -Infinity) {
+        pMin = Math.max(50, dataPMin - 50);
+        pMax = Math.min(1050, dataPMax + 50);
+        if (pMin >= pMax) {
+          pMin = 100;
+          pMax = 1000;
+        }
+      }
+
+      if (dataTMin < Infinity && dataTMax > -Infinity) {
+        const marginT = 10;
+        tMin = dataTMin - marginT;
+        tMax = dataTMax + marginT;
+
+        tMin = Math.max(-90, tMin);
+        tMax = Math.min(50, tMax);
+
+        if (tMax - tMin < 40) {
+          const mid = (tMax + tMin) / 2;
+          tMin = mid - 20;
+          tMax = mid + 20;
+        }
+      }
     }
 
     const logPmin = Math.log(pMin);
     const logPmax = Math.log(pMax);
-    const refLogP = Math.log(1000);
-    const skew = 35;
-
     const yForP = p => {
       const lp = Math.log(clamp(p, pMin, pMax));
       const frac = (lp - logPmin) / (logPmax - logPmin);
       return top + frac * plotH;
     };
 
+    const refLogP = Math.log(1000);
+    const skew = 35;
     const xForT = (T, p) => {
       const lp = Math.log(clamp(p, pMin, pMax));
       const skewedT = T + (lp - refLogP) * skew;
@@ -1485,125 +1406,45 @@ function renderSkewT(s) {
       return left + frac * plotW;
     };
 
-    function drawPath(points, color, widthPx, dash = []) {
-      if (!points.length) return;
-      ctx.save();
-      ctx.strokeStyle = color;
-      ctx.lineWidth = widthPx;
-      ctx.setLineDash(dash);
-      ctx.beginPath();
-      let started = false;
-      for (const p of points) {
-        if (!Number.isFinite(p.temp) || !Number.isFinite(p.pressure)) continue;
-        const x = xForT(p.temp, p.pressure);
-        const y = yForP(p.pressure);
-        if (!started) {
-          ctx.moveTo(x, y);
-          started = true;
-        } else {
-          ctx.lineTo(x, y);
-        }
-      }
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    function shadeBuoyancy(kind, fillStyle) {
-      ctx.save();
-      ctx.fillStyle = fillStyle;
-      for (let i = 1; i < hist.length; i++) {
-        const a = hist[i - 1];
-        const b = hist[i];
-        if (![a.p, b.p, a.temp, b.temp, a.parcelTc, b.parcelTc, a.buoy, b.buoy].every(Number.isFinite)) continue;
-        const signA = kind === 'pos' ? a.buoy > 0 : a.buoy < 0;
-        const signB = kind === 'pos' ? b.buoy > 0 : b.buoy < 0;
-        if (!signA && !signB) continue;
-
-        const xEa = xForT(a.temp, a.p);
-        const xPa = xForT(a.parcelTc, a.p);
-        const xEb = xForT(b.temp, b.p);
-        const xPb = xForT(b.parcelTc, b.p);
-        const yA = yForP(a.p);
-        const yB = yForP(b.p);
-
-        if (signA && signB) {
-          ctx.beginPath();
-          ctx.moveTo(xEa, yA);
-          ctx.lineTo(xPa, yA);
-          ctx.lineTo(xPb, yB);
-          ctx.lineTo(xEb, yB);
-          ctx.closePath();
-          ctx.fill();
-          continue;
-        }
-
-        if (a.buoy === b.buoy) continue;
-        const f = (0 - a.buoy) / (b.buoy - a.buoy);
-        if (!(f > 0 && f < 1)) continue;
-
-        const pCross = Math.exp(Math.log(a.p) + f * (Math.log(b.p) - Math.log(a.p)));
-        const envCross = a.temp + f * (b.temp - a.temp);
-        const parCross = a.parcelTc + f * (b.parcelTc - a.parcelTc);
-        const xEC = xForT(envCross, pCross);
-        const xPC = xForT(parCross, pCross);
-        const yC = yForP(pCross);
-
-        if (signA) {
-          ctx.beginPath();
-          ctx.moveTo(xEa, yA);
-          ctx.lineTo(xPa, yA);
-          ctx.lineTo(xPC, yC);
-          ctx.lineTo(xEC, yC);
-          ctx.closePath();
-          ctx.fill();
-        } else if (signB) {
-          ctx.beginPath();
-          ctx.moveTo(xEC, yC);
-          ctx.lineTo(xPC, yC);
-          ctx.lineTo(xPb, yB);
-          ctx.lineTo(xEb, yB);
-          ctx.closePath();
-          ctx.fill();
-        }
-      }
-      ctx.restore();
-    }
-
     const pStepMajor = 50;
-    const tStep = 10;
     const pGridMin = Math.ceil(pMin / pStepMajor) * pStepMajor;
     const pGridMax = Math.floor(pMax / pStepMajor) * pStepMajor;
+
+    const tStep = 10;
     const tGridMin = Math.ceil(tMin / tStep) * tStep;
     const tGridMax = Math.floor(tMax / tStep) * tStep;
 
+    // ====== CLIP: wszystko wewnątrz ramki ======
     ctx.save();
     ctx.beginPath();
     ctx.rect(left, top, plotW, plotH);
     ctx.clip();
 
-    // isobary
+    // --- isobary ---
+    ctx.font = '10px system-ui, sans-serif';
     ctx.strokeStyle = 'rgba(134,144,176,0.35)';
     ctx.lineWidth = 1;
-    for (let p = pGridMax; p >= pGridMin; p -= pStepMajor) {
-      const y = yForP(p);
-      ctx.beginPath();
-      ctx.moveTo(left, y);
-      ctx.lineTo(left + plotW, y);
-      ctx.stroke();
+    if (pGridMax >= pGridMin) {
+      for (let p = pGridMax; p >= pGridMin; p -= pStepMajor) {
+        const y = yForP(p);
+        ctx.beginPath();
+        ctx.moveTo(left, y);
+        ctx.lineTo(left + plotW, y);
+        ctx.stroke();
+      }
     }
 
-    // izotermy
-    ctx.strokeStyle = 'rgba(134,144,176,0.28)';
+    // --- izotermy ---
     ctx.setLineDash([4, 4]);
     for (let T = tGridMin; T <= tGridMax; T += tStep) {
+      let firstIso = true;
       ctx.beginPath();
-      let first = true;
       for (let p = pMax; p >= pMin; p -= 10) {
         const x = xForT(T, p);
         const y = yForP(p);
-        if (first) {
+        if (firstIso) {
           ctx.moveTo(x, y);
-          first = false;
+          firstIso = false;
         } else {
           ctx.lineTo(x, y);
         }
@@ -1612,15 +1453,57 @@ function renderSkewT(s) {
     }
     ctx.setLineDash([]);
 
+    // --- profil temperatury ---
+    if (showBasic) {
+      ctx.strokeStyle = '#ffb86c';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      let firstT = true;
+      for (const h of hist) {
+        if (!Number.isFinite(h.pressure) || !Number.isFinite(h.temp)) continue;
+        const x = xForT(h.temp, h.pressure);
+        const y = yForP(h.pressure);
+        if (firstT) {
+          ctx.moveTo(x, y);
+          firstT = false;
+        } else {
+          ctx.lineTo(x, y);
+        }
+      }
+      ctx.stroke();
+    }
+
+    // --- profil punktu rosy ---
+    if (showBasic) {
+      ctx.strokeStyle = '#7bffb0';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      let firstD = true;
+      for (const h of hist) {
+        const Td = dewPoint(h.temp, h.humidity);
+        if (!Number.isFinite(Td) || !Number.isFinite(h.pressure)) continue;
+        const x = xForT(Td, h.pressure);
+        const y = yForP(h.pressure);
+        if (firstD) {
+          ctx.moveTo(x, y);
+          firstD = false;
+        } else {
+          ctx.lineTo(x, y);
+        }
+      }
+      ctx.stroke();
+    }
+
+    // --- suche adiabaty ---
     if (showThermo) {
-      // suche adiabaty / izolinie theta
       ctx.save();
       ctx.strokeStyle = 'rgba(255,184,108,0.45)';
       ctx.lineWidth = 0.8;
       ctx.setLineDash([6, 4]);
-      for (let theta = 260; theta <= 380; theta += 10) {
-        ctx.beginPath();
+
+      for (let theta = 280; theta <= 360; theta += 10) {
         let first = true;
+        ctx.beginPath();
         for (let p = pMax; p >= pMin; p -= 10) {
           const Tk = theta / Math.pow(1000 / p, 0.2854);
           const T = Tk - 273.15;
@@ -1635,55 +1518,25 @@ function renderSkewT(s) {
         }
         ctx.stroke();
       }
-      ctx.restore();
 
-      // wilgotne adiabaty
-      ctx.save();
-      ctx.strokeStyle = 'rgba(173,216,255,0.28)';
-      ctx.lineWidth = 0.8;
-      ctx.setLineDash([1.5, 3.5]);
-      const moistStarts = [];
-      for (let t = -10; t <= 40; t += 5) moistStarts.push(t);
-      const pStart = Math.min(1000, pMax);
-      for (const startT of moistStarts) {
-        let pCur = pStart;
-        let TCur = startT + 273.15;
-        ctx.beginPath();
-        let first = true;
-        while (pCur >= pMin) {
-          const x = xForT(TCur - 273.15, pCur);
-          const y = yForP(pCur);
-          if (first) {
-            ctx.moveTo(x, y);
-            first = false;
-          } else {
-            ctx.lineTo(x, y);
-          }
-          const pNext = pCur - 10;
-          if (pNext < pMin) break;
-          const ws = saturationMixingRatio(pCur, TCur - 273.15);
-          const TvPar = virtualTemperatureK(TCur, ws);
-          const dz = -287.05 * TvPar / 9.80665 * Math.log(pNext / pCur);
-          const gammaM = moistAdiabaticLapseKPerM(TCur, pCur);
-          TCur -= gammaM * dz;
-          pCur = pNext;
-        }
-        ctx.stroke();
-      }
       ctx.restore();
+    }
 
-      // linie mieszania
+    // --- linie mieszania (przybliżone) ---
+    if (showThermo) {
       ctx.save();
-      ctx.strokeStyle = 'rgba(123,255,176,0.34)';
+      ctx.strokeStyle = 'rgba(123,255,176,0.35)';
       ctx.lineWidth = 0.8;
       ctx.setLineDash([2, 4]);
-      for (const wGkg of [0.4, 1, 2, 4, 8, 12, 16]) {
-        ctx.beginPath();
+
+      const wValues = [2, 4, 8, 12, 16]; // g/kg
+      const mixTop = Math.max(pMin, 400);
+      const mixBottom = pMax;
+      for (const w of wValues) {
         let first = true;
-        for (let p = pMax; p >= Math.max(300, pMin); p -= 10) {
-          const e = (wGkg * p) / (wGkg + 621.97);
-          if (!(e > 0 && e < p)) continue;
-          const Td = (243.5 * Math.log(e / 6.112)) / (17.67 - Math.log(e / 6.112));
+        ctx.beginPath();
+        for (let p = mixBottom; p >= mixTop; p -= 10) {
+          const Td = 5 + 8 * Math.log(w) - 0.005 * (p - 1000);
           const x = xForT(Td, p);
           const y = yForP(p);
           if (first) {
@@ -1695,79 +1548,59 @@ function renderSkewT(s) {
         }
         ctx.stroke();
       }
+
       ctx.restore();
     }
 
-    if (showMarine) {
-      // warstwy bliskie nasyceniu
-      ctx.save();
-      ctx.fillStyle = 'rgba(230,235,255,0.08)';
-      for (let i = 1; i < hist.length; i++) {
-        const a = hist[i - 1];
-        const b = hist[i];
-        if (![a.temp, a.dew, b.temp, b.dew, a.p, b.p].every(Number.isFinite)) continue;
-        const depA = a.temp - a.dew;
-        const depB = b.temp - b.dew;
-        if (depA <= 2 && depB <= 2) {
-          const y1 = yForP(a.p);
-          const y2 = yForP(b.p);
-          ctx.fillRect(left, Math.min(y1, y2), plotW, Math.abs(y2 - y1));
-        }
-      }
-      ctx.restore();
-
-      // inwersje temperatury
-      ctx.save();
-      ctx.fillStyle = 'rgba(61,212,255,0.10)';
-      for (let i = 1; i < hist.length; i++) {
-        const a = hist[i - 1];
-        const b = hist[i];
-        if (![a.temp, b.temp, a.p, b.p].every(Number.isFinite)) continue;
-        if (b.temp > a.temp + 0.2) {
-          const y1 = yForP(a.p);
-          const y2 = yForP(b.p);
-          ctx.fillRect(left, Math.min(y1, y2), plotW, Math.abs(y2 - y1));
-        }
-      }
-      ctx.restore();
-    }
-
-    if (showConv) {
-      shadeBuoyancy('neg', 'rgba(61,212,255,0.12)');
-      shadeBuoyancy('pos', 'rgba(255,84,112,0.16)');
-
-      // parcel path
-      ctx.save();
-      ctx.strokeStyle = '#ff7df2';
-      ctx.lineWidth = 1.6;
-      ctx.beginPath();
-      let first = true;
+    // --- LCL ---
+    if (showConv && Number.isFinite(s.lclHeight)) {
+      const targetZ = s.lclHeight;
+      let best = null;
+      let bestDz = Infinity;
       for (const h of hist) {
-        if (!Number.isFinite(h.parcelTc) || !Number.isFinite(h.p)) continue;
-        const x = xForT(h.parcelTc, h.p);
-        const y = yForP(h.p);
-        if (first) {
-          ctx.moveTo(x, y);
-          first = false;
-        } else {
-          ctx.lineTo(x, y);
+        if (!Number.isFinite(h.alt)) continue;
+        const dz = Math.abs(h.alt - targetZ);
+        if (dz < bestDz) {
+          bestDz = dz;
+          best = h;
         }
       }
-      ctx.stroke();
-      ctx.restore();
+
+      if (best && Number.isFinite(best.pressure)) {
+        const pLcl = best.pressure;
+        const surface = hist[0];
+        let tLcl = best.temp;
+        if (surface && Number.isFinite(surface.temp) && Number.isFinite(surface.pressure)) {
+          const theta = thetaK(surface.temp, surface.pressure);
+          const TkLcl = theta / Math.pow(1000 / pLcl, 0.2854);
+          tLcl = TkLcl - 273.15;
+        }
+        const xLcl = xForT(tLcl, pLcl);
+        const yLcl = yForP(pLcl);
+
+        ctx.save();
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1;
+
+        ctx.beginPath();
+        ctx.arc(xLcl, yLcl, 4, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.font = '10px system-ui, sans-serif';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('LCL', xLcl + 6, yLcl - 2);
+        ctx.restore();
+      }
     }
 
-    if (showBasic) {
-      drawPath(hist.map(h => ({ temp: h.temp, pressure: h.p })), '#ffb86c', 2);
-      drawPath(hist.map(h => ({ temp: h.dew, pressure: h.p })), '#7bffb0', 1.6);
-    }
-
-    // 0°C
+    // --- 0°C izoterma ---
     if (showMarine || showConv) {
       ctx.save();
       ctx.strokeStyle = '#3dd4ff';
-      ctx.lineWidth = 1.6;
+      ctx.lineWidth = 2;
       ctx.setLineDash([2, 2]);
+
       ctx.beginPath();
       let first = true;
       for (let p = pMax; p >= pMin; p -= 10) {
@@ -1784,30 +1617,9 @@ function renderSkewT(s) {
       ctx.restore();
     }
 
-    const drawLevelMark = (obj, label, color) => {
-      if (!obj || !Number.isFinite(obj.p) || !Number.isFinite(obj.temp)) return;
-      const x = xForT(obj.temp, obj.p);
-      const y = yForP(obj.p);
-      ctx.save();
-      ctx.strokeStyle = color;
-      ctx.fillStyle = color;
-      ctx.lineWidth = 1.2;
-      ctx.beginPath();
-      ctx.arc(x, y, 3.5, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.font = '10px system-ui, sans-serif';
-      ctx.textBaseline = 'bottom';
-      ctx.fillText(label, x + 6, y - 2);
-      ctx.restore();
-    };
+    ctx.restore(); // koniec clip
 
-    if (showConv) {
-      drawLevelMark(analysis.lcl, 'LCL', '#ffffff');
-      drawLevelMark(analysis.lfc, 'LFC', '#ffd166');
-      drawLevelMark(analysis.el, 'EL', '#ff5470');
-    }
-
-    ctx.restore(); // clip end
+    // ====== ELEMENTY POZA RAMKĄ ======
 
     ctx.strokeStyle = 'rgba(134,144,176,0.7)';
     ctx.lineWidth = 1;
@@ -1815,9 +1627,11 @@ function renderSkewT(s) {
 
     ctx.font = '10px system-ui, sans-serif';
     ctx.fillStyle = '#8a94b0';
-    for (let p = pGridMax; p >= pGridMin; p -= pStepMajor) {
-      const y = yForP(p);
-      ctx.fillText(p.toString(), 6, y + 3);
+    if (pGridMax >= pGridMin) {
+      for (let p = pGridMax; p >= pGridMin; p -= pStepMajor) {
+        const y = yForP(p);
+        ctx.fillText(p.toString(), 6, y + 3);
+      }
     }
 
     for (let T = tGridMin; T <= tGridMax; T += tStep) {
@@ -1834,12 +1648,13 @@ function renderSkewT(s) {
       ctx.strokeStyle = '#e6ebff';
       ctx.lineWidth = 1;
 
-      const xWind = left + plotW + 6;
-      const maxLen = 22;
+      const xWind = left + plotW + 4;
+      const maxLen = 24;
 
       function drawArrow(y, speed, dirDeg) {
         const spd = clamp(speed || 0, 0, 60);
         const len = (spd / 60) * maxLen;
+
         const rad = (270 - dirDeg) * Math.PI / 180;
         const x1 = xWind;
         const y1 = y;
@@ -1863,18 +1678,18 @@ function renderSkewT(s) {
         ctx.fill();
       }
 
-      const levelsWanted = [1000, 925, 850, 700, 500, 400, 300, 200];
-      for (const p of levelsWanted) {
+      const levels = [1000, 900, 800, 700, 600, 500, 400, 300, 200];
+      for (const p of levels) {
         let best = null;
         let bestDp = Infinity;
         for (const h of hist) {
-          const dp = Math.abs(h.p - p);
+          const dp = Math.abs(h.pressure - p);
           if (dp < bestDp) {
             bestDp = dp;
             best = h;
           }
         }
-        if (!best || bestDp > 60) continue;
+        if (!best) continue;
 
         let speed = best.windSpeed;
         let dir = best.windDir;
@@ -1886,9 +1701,8 @@ function renderSkewT(s) {
             const b = best;
             const dt = (b.time - a.time) / 1000;
             if (dt > 0 &&
-                Number.isFinite(a.alt) && Number.isFinite(b.alt) &&
-                Number.isFinite(a.p) && Number.isFinite(b.p) &&
-                Number.isFinite(a.temp) && Number.isFinite(b.temp)) {
+              Number.isFinite(a.lat) && Number.isFinite(a.lon) &&
+              Number.isFinite(b.lat) && Number.isFinite(b.lon)) {
               const dH = haversine(a.lat, a.lon, b.lat, b.lon);
               speed = dH / dt;
               dir = bearing(a.lat, a.lon, b.lat, b.lon);
@@ -1897,7 +1711,9 @@ function renderSkewT(s) {
         }
 
         if (!Number.isFinite(speed) || !Number.isFinite(dir)) continue;
-        drawArrow(yForP(best.p), speed, dir);
+
+        const y = yForP(best.pressure);
+        drawArrow(y, speed, dir);
       }
 
       ctx.restore();
@@ -1908,17 +1724,9 @@ function renderSkewT(s) {
     const legendY = top + 12;
     let lx = left + 8;
 
-    const drawLegend = (color, label, dash = []) => {
-      ctx.save();
-      ctx.strokeStyle = color;
+    const drawLegend = (color, label) => {
       ctx.fillStyle = color;
-      ctx.lineWidth = 2;
-      ctx.setLineDash(dash);
-      ctx.beginPath();
-      ctx.moveTo(lx, legendY - 5);
-      ctx.lineTo(lx + 14, legendY - 5);
-      ctx.stroke();
-      ctx.restore();
+      ctx.fillRect(lx, legendY - 6, 14, 2);
       ctx.fillStyle = '#e6ebff';
       ctx.fillText(label, lx + 20, legendY);
       lx += ctx.measureText(label).width + 52;
@@ -1929,18 +1737,14 @@ function renderSkewT(s) {
       drawLegend('#7bffb0', 'Td');
     }
     if (showThermo) {
-      drawLegend('rgba(255,184,108,0.85)', 'Suche adiabaty', [6, 4]);
-      drawLegend('rgba(173,216,255,0.85)', 'Wilgotne adiabaty', [1.5, 3.5]);
-      drawLegend('rgba(123,255,176,0.85)', 'Linie mieszania', [2, 4]);
+      drawLegend('rgba(255,184,108,0.7)', 'Suche adiabaty');
+      drawLegend('rgba(123,255,176,0.7)', 'Linie mieszania');
     }
     if (showConv) {
-      drawLegend('#ff7df2', 'Parcel');
       drawLegend('#ffffff', 'LCL');
-      drawLegend('#ffd166', 'LFC');
-      drawLegend('#ff5470', 'EL');
     }
-    if (showMarine) {
-      drawLegend('#3dd4ff', '0°C', [2, 2]);
+    if (showMarine || showConv) {
+      drawLegend('#3dd4ff', '0°C');
     }
     if (showWind) {
       drawLegend('#e6ebff', 'Wiatr');
@@ -1948,16 +1752,40 @@ function renderSkewT(s) {
 
     ctx.fillStyle = '#8a94b0';
     ctx.font = '10px system-ui, sans-serif';
-    ctx.fillText('Skew-T log-p (T / Td / parcel vs p)', left + 8, top + plotH + 18);
+    ctx.fillText('Skew-T log-p (T / Td vs p)', left + 8, top + plotH + 18);
   }
 
-function resizeCharts() {
+  function resizeCharts() {
     Object.values(state.charts).forEach(c => c && c.resize());
     if (state.miniMap) {
       setTimeout(() => state.miniMap.invalidateSize(), 80);
     }
     const s = state.sondes.get(state.activeId);
     renderSkewT(s);
+  }
+
+
+  let chartsResizeObserver = null;
+
+  function initChartAutoResize() {
+    if (chartsResizeObserver) return;
+    if (typeof ResizeObserver === 'undefined') return;
+
+    const targets = [
+      document.getElementById('view-charts'),
+      document.getElementById('view-telemetry'),
+      document.getElementById('view-presentation'),
+      document.getElementById('presentation-slide-stage')
+    ].filter(Boolean);
+
+    chartsResizeObserver = new ResizeObserver(() => {
+      clearTimeout(initChartAutoResize._t);
+      initChartAutoResize._t = setTimeout(() => {
+        resizeCharts();
+      }, 80);
+    });
+
+    targets.forEach(el => chartsResizeObserver.observe(el));
   }
 
   function renderMiniMap(s, hist) {
@@ -2045,7 +1873,7 @@ function resizeCharts() {
             {
 
 
-              label: 'Temperatura [°C]',
+              label: 'Temperatura [C] vs wysokosc [m]',
 
 
               data: [],
@@ -2095,7 +1923,7 @@ function resizeCharts() {
               type: 'linear',
 
 
-              title: { display: true, text: 'Temperatura [°C]', color: '#e6ebff' },
+              title: { display: true, text: 'Temperatura [C]', color: '#e6ebff' },
 
 
               grid: { color: 'rgba(134,144,176,.35)' },
@@ -2217,7 +2045,43 @@ function resizeCharts() {
       chart.update('none');
 
 
-    })();// 2) GNSS – placeholder// 2) GNSS – placeholder
+    })();// 2) GNSS – placeholder
+    (function () {
+      const id = 'chart-gnss';
+      const chart = ensureChart(id, () => ({
+        type: 'line',
+        data: {
+          datasets: [
+            {
+              label: 'Liczba satelitów GNSS',
+              data: [],
+              borderWidth: 1.5,
+              pointRadius: 0
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          parsing: false,
+          scales: {
+            x: timeScaleOptions('Czas'),
+            y: commonY('Liczba satelitów')
+          },
+          plugins: {
+            tooltip: tooltipWithAltitude(),
+            legend: { labels: { color: '#e6ebff' } }
+          }
+        }
+      }));
+      if (!chart) return;
+
+      chart.data.datasets[0].data = [];
+      chart.update('none');
+    })();
+
+// 2) GNSS – placeholder// 2) GNSS – placeholder
     (function () {
       const id = 'chart-gnss';
       const chart = ensureChart(id, () => ({
@@ -2352,7 +2216,7 @@ function resizeCharts() {
 
               position: 'bottom',
 
-              title: { display: true, text: 'Temperatura [°C]', color: '#e6ebff' },
+              title: { display: true, text: 'Temperatura [C]', color: '#e6ebff' },
 
               grid: { color: 'rgba(134,144,176,.35)' },
 
@@ -2843,8 +2707,7 @@ function resizeCharts() {
   }
 
   // ======= Karta CAPE / CIN =======
-  
-function renderCapeCinCard(s) {
+  function renderCapeCinCard(s) {
     const chartsView = document.getElementById('view-charts');
     if (!chartsView) return;
 
@@ -2873,9 +2736,6 @@ function renderCapeCinCard(s) {
     const cin = s.cin;
     const gamma = s.stabilityIndex;
     const cls = s.stabilityClass || '—';
-    const lclStr = fmt(s.lclHeight, 0);
-    const lfcStr = fmt(s.lfcHeight, 0);
-    const elStr = fmt(s.elHeight, 0);
 
     let capeLevel = 'brak danych';
     if (Number.isFinite(cape)) {
@@ -2896,17 +2756,17 @@ function renderCapeCinCard(s) {
 
     let summary;
     if (!Number.isFinite(cape)) {
-      summary = 'Brak pełnego profilu do wiarygodnego wyznaczenia energii konwekcji.';
+      summary = 'Brak pełnych danych do obliczenia CAPE/CIN – wykorzystano jedynie wskaźnik stabilności.';
     } else if (cape < 100) {
       summary = 'Konwekcja praktycznie wykluczona.';
     } else if (cape < 500) {
-      summary = 'Możliwa słaba, lokalna konwekcja.';
+      summary = 'Słaba, lokalna konwekcja możliwa.';
     } else if (cape < 1000) {
-      summary = 'Umiarkowany potencjał rozwoju chmur konwekcyjnych i burz.';
+      summary = 'Umiarkowany potencjał burzowy.';
     } else if (cape < 2000) {
-      summary = 'Duży potencjał burzowy, zwłaszcza przy obecnym ścinaniu.';
+      summary = 'Duży potencjał burzowy, możliwe silniejsze komórki.';
     } else {
-      summary = 'Bardzo duży potencjał burzowy – środowisko sprzyja silnym burzom.';
+      summary = 'Bardzo duży potencjał burzowy – środowisko sprzyjające silnym burzom.';
     }
 
     const gammaStr = Number.isFinite(gamma) ? gamma.toFixed(1) + ' K/km' : '—';
@@ -2931,28 +2791,21 @@ function renderCapeCinCard(s) {
             </div>
             <div class="cape-cin-level">${cinLevel}</div>
           </div>
-          <div class="cape-cin-block">
-            <div class="cape-cin-label">Poziomy</div>
-            <div class="cape-cin-value" style="font-size:14px;line-height:1.45">
-              LCL: ${lclStr} m<br>
-              LFC: ${lfcStr} m<br>
-              EL: ${elStr} m
-            </div>
-            <div class="cape-cin-level">Poziomy parcelu</div>
-          </div>
         </div>
         <div class="cape-cin-extra">
           <div><strong>Stabilność (Γ):</strong> ${gammaStr} (${cls})</div>
           <div><strong>Szybka ocena:</strong> ${summary}</div>
           <div class="cape-cin-note">
-            Wartości wyliczane są z profilu T / Td / p metodą parcelu powierzchniowego (surface-based).
+            Uwaga: wartości CAPE/CIN są w tej chwili prototypowe – mogą być rozwinięte o pełne obliczenia z profilu
+            radiosondażu.
           </div>
         </div>
       </div>
     `;
   }
 
-// ======= Wskaznik widzialnosci (szacunkowy, na podstawie warstwy przyziemnej) =======
+  
+  // ======= Wskaznik widzialnosci (szacunkowy, na podstawie warstwy przyziemnej) =======
   // Uwaga: to NIE jest oficjalny METAR/TAF. To heurystyka z danych radiosondy (T/RH).
   // Wynik traktuj jako orientacyjny.
   function estimateVisibilityKmFromTRH(Tc, RH) {
@@ -3451,7 +3304,7 @@ async function addElementImageBySelector(selector, label) {
 
 
 
-    try { addChartImageByCanvasId('chart-volt-temp',   'Temperature vs altitude'); } catch (e) { console.error(e); }
+    try { addChartImageByCanvasId('chart-volt-temp',   'Temperature vs time'); } catch (e) { console.error(e); }
     try { addChartImageByCanvasId('chart-hvel',        'Horizontal speed vs time'); } catch (e) { console.error(e); }
     try { await addHighResEnvChart('chart-env',         'Environmental data (T, RH, p)'); } catch (e) { console.error(e); }
     try { addChartImageByCanvasId('chart-wind-profile','Wind profile'); } catch (e) { console.error(e); }
@@ -3509,36 +3362,12 @@ await addElementImageBySelector('.visibility-card',   'Visibility estimate');
     }
   }
 
-  
-  function initAutoResizeWatcher() {
-    const trigger = () => {
-      requestAnimationFrame(() => {
-        try { resizeCharts(); } catch (e) {}
-        try { state.map && state.map.invalidateSize && state.map.invalidateSize(false); } catch (e) {}
-      });
-    };
-
-    window.addEventListener('resize', trigger);
-    window.addEventListener('orientationchange', trigger);
-
-    if ('ResizeObserver' in window) {
-      const ro = new ResizeObserver(trigger);
-      [
-        document.getElementById('view-charts'),
-        document.getElementById('view-telemetry'),
-        document.getElementById('view-presentation'),
-        document.querySelector('#view-charts .charts-scroll'),
-        document.getElementById('mini-map')?.parentElement
-      ].filter(Boolean).forEach(el => ro.observe(el));
-    }
-  }
-
-// ======= Boot =======
+  // ======= Boot =======
   window.addEventListener('DOMContentLoaded', () => {
     initLogin();
     initMap();
     initUI();
-    initAutoResizeWatcher();
+    initChartAutoResize();
     restartFetching();
   });
 })();
@@ -3774,7 +3603,6 @@ function stopTelemetryAutoScroll() {
     slidesCache = slides;
     slideIndex = 0;
     paused = false;
-
     if (!slidesCache.length) {
       console.warn('Brak slajdów do prezentacji.');
       return;
