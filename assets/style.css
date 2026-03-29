@@ -835,16 +835,20 @@ body.presentation-mode .active-sondes-card {
   display: none !important;
 }
 
+/* --- Karta instrukcji / pomocy --- */
+
 .instruction-card {
   font-size: 0.9rem;
   line-height: 1.5;
+  min-height: 140px;
   overflow-y: auto;
+  padding-right: 4px;
 }
 
 .instruction-card h3 {
   margin: 10px 0 6px;
   color: #9fb3ff;
-  font-size: 1rem;
+  font-size: 14px;
 }
 
 .instruction-card ul {
@@ -854,4 +858,5 @@ body.presentation-mode .active-sondes-card {
 
 .instruction-card li {
   margin-bottom: 4px;
+  color: #e6ebff;
 }
