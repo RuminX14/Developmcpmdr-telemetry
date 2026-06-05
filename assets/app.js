@@ -755,7 +755,13 @@ function computeCapeCin(history) {
       const rec = i => {
         if (i < 0) return '';
         const v = row[i];
-        return v == null ? '' : String(v).trim();
+        if (v == null) return '';
+        let str = String(v).trim();
+        // Usunięcie cudzysłowów, jeśli komórka CSV jest nimi otoczona
+        if (str.startsWith('"') && str.endsWith('"')) {
+          str = str.slice(1, -1).trim();
+        }
+        return str;
       };
 
       if (debugCount < 5) {
