@@ -11,14 +11,9 @@
     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
     crossorigin="anonymous"
   />
-  <link
-    rel="stylesheet"
-    href="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/Chart.min.css"
-  />
   <link rel="stylesheet" href="assets/style.css" />
 </head>
 <body>
-  <!-- Login overlay -->
   <div id="login-overlay" class="login-overlay">
     <div class="login-panel">
       <h1 data-i18n="login_title">
@@ -36,7 +31,6 @@
   </div>
 
   <div id="app" class="app hidden">
-    <!-- Top bar -->
     <header class="topbar">
       <div class="brand">
         <span class="brand-title" data-i18n="login_title">
@@ -90,7 +84,6 @@
         </button>
       </div>
 
-      <!-- Raport PDF + języki (PL/EN pod przyciskiem) -->
       <div class="pdf-lang">
         <button id="btn-pdf" class="btn primary">
           Raport PDF
@@ -106,12 +99,10 @@
     <main class="main-layout">
       <div id="status-line" class="status-line"></div>
 
-      <!-- Telemetry view -->
       <section id="view-telemetry" class="view view-telemetry show">
         <div id="map" class="map"></div>
 
         <aside class="side-panel">
-          <!-- przewijane okienko z sondami (do 3 wierszy, poziomy scroll w CSS) -->
           <div class="card sonde-list-card">
             <div class="card-head">
               <span>Aktywne radiosondy</span>
@@ -119,16 +110,13 @@
             <div id="sonde-tabs" class="sonde-tabs sonde-tabs-scroll"></div>
           </div>
 
-          <!-- panel z danymi wybranej sondy -->
           <div id="sonde-panel" class="sonde-panel-grid"></div>
         </aside>
       </section>
 
-      <!-- Charts view -->
       <section id="view-charts" class="view view-charts">
         <div class="charts-scroll">
 
-          <!-- 1. Trasa lotu (mini-mapa) – PIERWSZA, mała karta -->
           <div class="card">
             <div class="card-head">
               <span>Trasa lotu (mini-mapa)</span>
@@ -141,7 +129,6 @@
             </div>
           </div>
 
-          <!-- 2. Temperatura w czasie -->
           <div class="card">
             <div class="card-head">
               <span>Temperatura vs wysokość</span>
@@ -152,8 +139,7 @@
             <div class="card-body">
               <canvas id="chart-volt-temp"></canvas>
             </div>
-          </div>          <!-- 3. Instrukcja użytkownika -->
-          <div class="card">
+          </div>          <div class="card">
             <div class="card-head">
               <span>Instrukcja / pomoc</span>
             </div>
@@ -195,7 +181,6 @@
             </div>
           </div>
 
-          <!-- 4. Prędkość pozioma w czasie -->
           <div class="card">
             <div class="card-head">
               <span>Prędkość pozioma w czasie</span>
@@ -208,7 +193,6 @@
             </div>
           </div>
 
-          <!-- 5. Profil wiatru -->
           <div class="card">
             <div class="card-head">
               <span>Profil wiatru (prędkość i kierunek vs wysokość)</span>
@@ -221,7 +205,6 @@
             </div>
           </div>
 
-          <!-- 6. Gęstość powietrza vs wysokość -->
           <div class="card">
             <div class="card-head">
               <span>Gęstość powietrza vs wysokość</span>
@@ -234,7 +217,6 @@
             </div>
           </div>
 
-          <!-- 7. RSSI i napięcie vs temperatura -->
           <div class="card">
             <div class="card-head">
               <span>RSSI i napięcie vs temperatura</span>
@@ -247,7 +229,6 @@
             </div>
           </div>
 
-          <!-- 8. Wskaźnik stabilności atmosfery -->
           <div class="card">
             <div class="card-head">
               <span>Stabilność atmosfery</span>
@@ -260,7 +241,6 @@
             </div>
           </div>
 
-          <!-- 9. Dane środowiskowe (T, RH, p) – szeroka karta na dole -->
           <div class="card wide">
             <div class="card-head">
               <span>Dane środowiskowe (T, RH, p)</span>
@@ -273,18 +253,14 @@
             </div>
           </div>
 
-          <!-- 10. CAPE / CIN (dynamicznie wypełniane przez JS) -->
           <div id="cape-cin-card" class="card wide cape-cin-card"></div>
 
-          <!-- 11. Skew-T Log-P (profil T / Td) z przełącznikami warstw -->
           <div class="card wide skewt-card">
             <div class="card-head">
               <span>Skew-T Log-P (profil T / Td)</span>
 
-              <!-- PANEL PRZEŁĄCZNIKÓW DLA WARSTW SKEW-T -->
               <div class="skewt-controls">
                 <div class="skewt-toggle-group">
-                  <!-- podstawowy profil T/Td (zawsze na start włączony) -->
                   <button
                     type="button"
                     class="btn ghost small skewt-toggle active"
@@ -293,7 +269,6 @@
                     T / Td
                   </button>
 
-                  <!-- grupy funkcji, żeby nie przeładować wykresu -->
                   <button
                     type="button"
                     class="btn ghost small skewt-toggle active"
@@ -327,7 +302,6 @@
                   </button>
                 </div>
 
-                <!-- fullscreen jak w innych kartach -->
                 <button class="btn icon fullscreen-toggle" title="Pełny ekran">
                   ⤢
                 </button>
@@ -337,7 +311,6 @@
             <div class="card-body skewt-body">
               <canvas id="chart-skewt"></canvas>
 
-              <!-- mała legenda co jest pod którą grupą -->
               <div class="skewt-legend">
                 <div><strong>T / Td:</strong> profil temperatury i punktu rosy.</div>
                 <div><strong>Termodyn.:</strong> suche / wilgotne adiabaty, izolinie θ, linie mieszania.</div>
@@ -350,7 +323,6 @@
 
         </div>
       </section>
-      <!-- Presentation view (split 50/50: Telemetry left + Charts slideshow right) -->
       <section id="view-presentation" class="view view-presentation">
         <div class="presentation-split">
           <div class="presentation-left">
@@ -380,7 +352,6 @@
   ></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
-  <!-- PDF: jsPDF + html2canvas -->
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 
