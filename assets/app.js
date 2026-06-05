@@ -38,7 +38,7 @@
       marine: false
     }
   };
-
+window.state = state;
   // ======= i18n =======
   const translations = {
     pl: {
